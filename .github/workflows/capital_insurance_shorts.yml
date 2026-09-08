@@ -32,8 +32,7 @@ jobs:
         run: echo '${{ secrets.CLIENT_SECRETS }}' > client_secrets.json
 
       - name: Restore youtube_token.pkl
-        run: echo '${{ secrets.YOUTUBE_TOKEN_B64 }}' | base64 -d > youtube_token.pkl
-
+        run: echo "${{ secrets.YOUTUBE_TOKEN_B64 }}" | tr -d ' \t\r\n' | base64 -d > youtube_token.pkl
       - name: Run bot (Shorts)
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
