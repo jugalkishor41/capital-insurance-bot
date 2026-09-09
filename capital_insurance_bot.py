@@ -9,7 +9,7 @@ Capital Insurance Investments — YouTube Finance & Insurance Shorts Bot v1
 - SEBI (finance) / IRDAI (insurance) disclaimer — auto-selected per topic
 - 2 minute videos
 """
-import os, json, random, time, datetime, schedule, pickle, urllib.request
+import os, json, random, time, datetime, schedule, pickle, urllib.request, urllib.parse
 from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -266,41 +266,46 @@ def draw_icon(draw, cx, cy, kind, color, size=46):
         draw.ellipse([bx - r*0.24, by + r*0.48, bx + r*0.24, by + r*0.82], fill=color)
         draw.ellipse([bx - r*0.13, by - r*1.12, bx + r*0.13, by - r*0.88], fill=color)
 
-def get_topic_image(topic):
+def get_topic_image(topic, seed_suffix=""):
+    """Fetch a topic-relevant image. Tries Pexels (free API, real
+    keyword-matched photos) first, falls back to Picsum (seeded random
+    photography, always works, no key needed) if Pexels isn't configured
+    or fails. source.unsplash.com is NOT used — Unsplash permanently
+    retired that endpoint in 2024 (it now returns HTTP 503)."""
     import hashlib
     cache_dir = Path("topic_images")
     cache_dir.mkdir(exist_ok=True)
-    safe = hashlib.md5(topic.encode()).hexdigest()[:10]
+    safe = hashlib.md5((topic + seed_suffix).encode()).hexdigest()[:10]
     img_path = cache_dir / f"{safe}.jpg"
     if img_path.exists():
         return str(img_path)
 
     t = topic.lower()
     kw_map = {
-        ("sip","निवेश","invest","mutual fund","म्यूचुअल"): "investment+growth+finance",
-        ("टैक्स","tax","80c","elss"):                       "tax+savings+india",
-        ("बजट","budget","50-30-20"):                        "budget+planning+money",
-        ("इमरजेंसी फंड","emergency fund"):                   "emergency+fund+savings",
-        ("शेयर","stock","बाजार","market","index fund"):     "stock+market+india",
-        ("क्रेडिट कार्ड","credit card"):                     "credit+card+finance",
-        ("रिटायरमेंट","retirement","nps"):                   "retirement+planning+india",
-        ("गोल्ड","gold"):                                    "gold+investment+india",
-        ("फिक्स्ड डिपॉजिट","fixed deposit","fd"):            "bank+savings+india",
-        ("पर्सनल लोन","loan","कर्ज"):                        "personal+loan+finance",
-        ("क्रेडिट स्कोर","credit score"):                    "credit+score+finance",
-        ("टर्म इंश्योरेंस","term plan","term insurance"):    "term+insurance+family",
-        ("हेल्थ इंश्योरेंस","health cover","health insurance"): "health+insurance+india",
-        ("एंडोमेंट","endowment"):                            "insurance+policy+documents",
-        ("ulip","यूलिप"):                                    "investment+insurance+india",
-        ("नॉमिनी","nominee"):                                "family+finance+planning",
-        ("क्रिटिकल इलनेस","critical illness"):               "health+insurance+hospital",
-        ("फैमिली फ्लोटर","family floater"):                  "family+health+insurance",
-        ("चाइल्ड इंश्योरेंस","child insurance"):             "family+savings+india",
-        ("क्लेम","claim"):                                   "insurance+claim+documents",
-        ("प्रीमियम","premium"):                              "insurance+premium+finance",
+        ("sip","निवेश","invest","mutual fund","म्यूचुअल"): "investment growth finance",
+        ("टैक्स","tax","80c","elss"):                       "tax savings india",
+        ("बजट","budget","50-30-20"):                        "budget planning money",
+        ("इमरजेंसी फंड","emergency fund"):                   "emergency fund savings",
+        ("शेयर","stock","बाजार","market","index fund"):     "stock market india",
+        ("क्रेडिट कार्ड","credit card"):                     "credit card finance",
+        ("रिटायरमेंट","retirement","nps"):                   "retirement planning india",
+        ("गोल्ड","gold"):                                    "gold investment india",
+        ("फिक्स्ड डिपॉजिट","fixed deposit","fd"):            "bank savings india",
+        ("पर्सनल लोन","loan","कर्ज"):                        "personal loan finance",
+        ("क्रेडिट स्कोर","credit score"):                    "credit score finance",
+        ("टर्म इंश्योरेंस","term plan","term insurance"):    "term insurance family",
+        ("हेल्थ इंश्योरेंस","health cover","health insurance"): "health insurance india",
+        ("एंडोमेंट","endowment"):                            "insurance policy documents",
+        ("ulip","यूलिप"):                                    "investment insurance india",
+        ("नॉमिनी","nominee"):                                "family finance planning",
+        ("क्रिटिकल इलनेस","critical illness"):               "health insurance hospital",
+        ("फैमिली फ्लोटर","family floater"):                  "family health insurance",
+        ("चाइल्ड इंश्योरेंस","child insurance"):             "family savings india",
+        ("क्लेम","claim"):                                   "insurance claim documents",
+        ("प्रीमियम","premium"):                              "insurance premium finance",
     }
 
-    keyword = "india+finance+money"
+    keyword = "finance money india"
     for keys, kw in kw_map.items():
         if isinstance(keys, str):
             keys = (keys,)
@@ -308,13 +313,35 @@ def get_topic_image(topic):
             keyword = kw
             break
 
+    pexels_key = os.environ.get("PEXELS_API_KEY", "")
+    if pexels_key:
+        try:
+            search_url = f"https://api.pexels.com/v1/search?query={urllib.parse.quote(keyword)}&per_page=5&orientation=portrait"
+            req = urllib.request.Request(search_url, headers={"Authorization": pexels_key})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                data = json.loads(r.read().decode())
+            photos = data.get("photos", [])
+            if photos:
+                pick = random.choice(photos)
+                photo_url = pick["src"]["portrait"]
+                img_req = urllib.request.Request(photo_url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(img_req, timeout=15) as r:
+                    with open(img_path, "wb") as f:
+                        f.write(r.read())
+                print(f"  Image (Pexels): {keyword}")
+                return str(img_path)
+        except Exception as e:
+            print(f"  Pexels failed ({e}), falling back to Picsum")
+
+    # Fallback: Picsum — no keyword matching, but always works, no key needed
     try:
-        url = f"https://source.unsplash.com/1080x1920/?{keyword}"
+        seed = safe
+        url = f"https://picsum.photos/seed/{seed}/1080/1920"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=15) as r:
             with open(img_path, "wb") as f:
                 f.write(r.read())
-        print(f"  Image: {keyword}")
+        print(f"  Image (Picsum fallback, seed={seed})")
         return str(img_path)
     except Exception as e:
         print(f"  Image failed: {e}")
@@ -324,7 +351,8 @@ def get_topic_image(topic):
 #  BUILD VIDEO FRAME
 # ══════════════════════════════════════════════════════════
 def build_frame(theme, screen_num, title, tips,
-                highlight_idx=-1, total=5, topic_image=None, topic=None):
+                highlight_idx=-1, total=5, topic_image=None, topic=None,
+                point_image=None, point_text=None):
     p     = theme["primary"]
     d     = theme["dark"]
     bg    = theme["bg"]
@@ -427,90 +455,148 @@ def build_frame(theme, screen_num, title, tips,
     draw.ellipse([sx-70, sy, sx-10, sy+sh], fill=white)
     draw_icon(draw, sx-40, sy+sh//2, "bell", p, size=40)
 
-    # ── TITLE CARD ────────────────────────────────────────
-    ty = banner_h + 22
-    th = 175
-    draw.rounded_rectangle([34, ty+5, W-24, ty+th+5],
-                           radius=22, fill=(180,180,180))
-    draw.rounded_rectangle([28, ty, W-28, ty+th],
-                           radius=22, fill=white, outline=p, width=5)
+    # ══════════════════════════════════════════════════════
+    #  MODE 1: SINGLE-POINT REVEAL (screens 1, 2, 3)
+    #  Large point-specific image + caption in the FOOTER
+    # ══════════════════════════════════════════════════════
+    if point_text is not None:
+        badge_y = banner_h + 20
+        f_badge = load_latin_font(38)
+        draw.ellipse([40, badge_y, 40+64, badge_y+64], fill=p)
+        draw.text((72, badge_y+32), str(screen_num),
+                 font=f_badge, fill=white, anchor="mm")
+        f_lbl = pick_font("पॉइंट", 34)
+        draw.text((118, badge_y+32), f"पॉइंट {screen_num} / 3",
+                 font=f_lbl, fill=p, anchor="lm")
 
-    f_title = pick_font(title, 58)
-    tlines = wrap(title, f_title, W-120, draw)
-    t_y = ty + th//2 - len(tlines)*33
-    for line in tlines:
-        draw.text((W//2+2, t_y+2), line, font=f_title,
-                 fill=light, anchor="mm")
-        draw.text((W//2, t_y), line, font=f_title,
-                 fill=p, anchor="mm")
-        t_y += 68
+        # ── Large point image ──────────────────────────────
+        img_y1 = badge_y + 84
+        footer_h = 175
+        footer_y = H - 285 - footer_h - 18
+        img_y2 = footer_y - 15
 
-    # ── TIP CARDS ─────────────────────────────────────────
-    item_start = ty + th + 25
-    item_h     = 158
-    gap        = 20
-    f_num      = load_latin_font(52)
-
-    for idx, tip in enumerate(tips[:3]):
-        iy = item_start + idx * (item_h + gap)
-        if iy + item_h > H - 230:
-            break
-
-        is_active = (idx == highlight_idx)
-        f_item = pick_font(tip, 50)
-
-        draw.rounded_rectangle([34, iy+6, W-24, iy+item_h+6],
-                               radius=24, fill=(150,150,150))
-
-        if is_active:
-            # Solid (non-alpha) glow ring — RGBA fills on an RGB image
-            # render corrupted/blank, which was the root cause of the
-            # broken-looking active card in earlier videos.
-            for g in range(5, 0, -1):
-                gc = tuple(min(255, int(c + (255-c)*0.12*g)) for c in p)
-                draw.rounded_rectangle(
-                    [28-g*2, iy-g*2, W-28+g*2, iy+item_h+g*2],
-                    radius=24+g, outline=gc, width=2
-                )
-            draw.rounded_rectangle([28, iy, W-28, iy+item_h],
-                                   radius=24, fill=p)
-            draw.rounded_rectangle([28, iy, 100, iy+item_h],
-                                   radius=24, fill=d)
-            draw.ellipse([112, iy+item_h//2-38, 188, iy+item_h//2+38],
-                        fill=white)
-            draw.text((150, iy+item_h//2), str(idx+1),
-                     font=f_num, fill=p, anchor="mm")
-            ilines = wrap(tip, f_item, W-240, draw)
-            it_y = iy + item_h//2 - len(ilines)*28
-            for line in ilines:
-                draw.text((205, it_y), line,
-                         font=f_item, fill=white, anchor="lm")
-                it_y += 58
-            draw.rounded_rectangle([W-220, iy+10, W-35, iy+58],
-                                   radius=22, fill=white)
-            draw.text((W-127, iy+34), "NOW PLAYING",
-                     font=load_latin_font(24), fill=p, anchor="mm")
-            for bi, bh2 in enumerate([18, 35, 50, 32, 22]):
-                bx2 = W-210 + bi*22
-                draw.rectangle([bx2, iy+item_h-25-bh2,
-                               bx2+14, iy+item_h-25],
-                              fill=white)
+        draw.rounded_rectangle([26, img_y1+6, W-26, img_y2+6],
+                               radius=26, fill=(140,140,140))
+        if point_image and os.path.exists(point_image):
+            try:
+                pi = Image.open(point_image).convert("RGB")
+                target_w, target_h = W-52, img_y2-img_y1
+                pi_ratio = pi.width / pi.height
+                box_ratio = target_w / target_h
+                if pi_ratio > box_ratio:
+                    new_h = target_h
+                    new_w = int(new_h * pi_ratio)
+                else:
+                    new_w = target_w
+                    new_h = int(new_w / pi_ratio)
+                pi = pi.resize((new_w, new_h), Image.LANCZOS)
+                left = (new_w - target_w) // 2
+                top  = (new_h - target_h) // 2
+                pi = pi.crop((left, top, left+target_w, top+target_h))
+                img.paste(pi, (26, img_y1))
+                draw = ImageDraw.Draw(img)
+            except Exception as e:
+                print(f"  Point image error: {e}")
+                draw.rectangle([26, img_y1, W-26, img_y2], fill=light)
         else:
+            draw.rectangle([26, img_y1, W-26, img_y2], fill=light)
+        draw.rounded_rectangle([26, img_y1, W-26, img_y2],
+                               radius=26, outline=p, width=6)
+
+        # ── Footer caption (the point text lives HERE, not up top) ──
+        draw.rounded_rectangle([28, footer_y+6, W-28, footer_y+footer_h+6],
+                               radius=24, fill=(130,130,130))
+        draw.rounded_rectangle([28, footer_y, W-28, footer_y+footer_h],
+                               radius=24, fill=p)
+        draw.rounded_rectangle([28, footer_y, 100, footer_y+footer_h],
+                               radius=24, fill=d)
+        f_num = load_latin_font(52)
+        draw.ellipse([112, footer_y+footer_h//2-38, 188, footer_y+footer_h//2+38],
+                    fill=white)
+        draw.text((150, footer_y+footer_h//2), str(screen_num),
+                 font=f_num, fill=p, anchor="mm")
+        f_cap = pick_font(point_text, 48)
+        clines = wrap(point_text, f_cap, W-260, draw)
+        cy = footer_y + footer_h//2 - len(clines)*28
+        for line in clines:
+            draw.text((205, cy), line, font=f_cap, fill=white, anchor="lm")
+            cy += 56
+
+    # ══════════════════════════════════════════════════════
+    #  MODE 2: INTRO TEASER (screen 0) — hook only, tips
+    #  are NOT revealed yet (kept for the step-by-step reveal)
+    # ══════════════════════════════════════════════════════
+    elif screen_num == 0:
+        ty = banner_h + 60
+        th = 420
+        draw.rounded_rectangle([34, ty+5, W-24, ty+th+5],
+                               radius=26, fill=(180,180,180))
+        draw.rounded_rectangle([28, ty, W-28, ty+th],
+                               radius=26, fill=white, outline=p, width=6)
+        f_title = pick_font(title, 62)
+        tlines = wrap(title, f_title, W-140, draw)
+        t_y = ty + th//2 - len(tlines)*36 - 40
+        for line in tlines:
+            draw.text((W//2+2, t_y+2), line, font=f_title,
+                     fill=light, anchor="mm")
+            draw.text((W//2, t_y), line, font=f_title,
+                     fill=p, anchor="mm")
+            t_y += 74
+
+        # Teaser row — hints 3 points are coming, without revealing them
+        f_teaser = pick_font("3 जरूरी पॉइंट्स आगे", 34)
+        draw.text((W//2, ty+th-70), "3 जरूरी पॉइंट्स आगे",
+                 font=f_teaser, fill=d, anchor="mm")
+        for i in range(3):
+            cx = W//2 - 90 + i*90
+            cy = ty + th - 20
+            draw.ellipse([cx-28, cy-28, cx+28, cy+28],
+                        fill=white, outline=p, width=4)
+            draw.text((cx, cy), str(i+1), font=load_latin_font(34),
+                     fill=p, anchor="mm")
+
+    # ══════════════════════════════════════════════════════
+    #  MODE 3: OUTRO RECAP (screen 4) — all 3 points shown
+    #  together as a summary, now that they've been revealed
+    # ══════════════════════════════════════════════════════
+    else:
+        ty = banner_h + 22
+        th = 140
+        draw.rounded_rectangle([34, ty+5, W-24, ty+th+5],
+                               radius=22, fill=(180,180,180))
+        draw.rounded_rectangle([28, ty, W-28, ty+th],
+                               radius=22, fill=white, outline=p, width=5)
+        f_title = pick_font(title, 50)
+        tlines = wrap(title, f_title, W-120, draw)
+        t_y = ty + th//2 - len(tlines)*28
+        for line in tlines:
+            draw.text((W//2, t_y), line, font=f_title, fill=p, anchor="mm")
+            t_y += 58
+
+        item_start = ty + th + 20
+        item_h     = 145
+        gap        = 18
+        f_num      = load_latin_font(46)
+        for idx, tip in enumerate(tips[:3]):
+            iy = item_start + idx * (item_h + gap)
+            if iy + item_h > H - 230:
+                break
+            f_item = pick_font(tip, 44)
+            draw.rounded_rectangle([34, iy+6, W-24, iy+item_h+6],
+                                   radius=22, fill=(150,150,150))
             draw.rounded_rectangle([28, iy, W-28, iy+item_h],
-                                   radius=24, fill=white,
-                                   outline=p, width=3)
-            draw.rounded_rectangle([28, iy, 100, iy+item_h],
-                                   radius=24, fill=p)
-            draw.ellipse([112, iy+item_h//2-34, 184, iy+item_h//2+34],
+                                   radius=22, fill=white, outline=p, width=3)
+            draw.rounded_rectangle([28, iy, 96, iy+item_h],
+                                   radius=22, fill=p)
+            draw.ellipse([108, iy+item_h//2-32, 176, iy+item_h//2+32],
                         fill=d)
-            draw.text((148, iy+item_h//2), str(idx+1),
+            draw.text((142, iy+item_h//2), str(idx+1),
                      font=f_num, fill=white, anchor="mm")
-            ilines = wrap(tip, f_item, W-240, draw)
-            it_y = iy + item_h//2 - len(ilines)*28
+            ilines = wrap(tip, f_item, W-230, draw)
+            it_y = iy + item_h//2 - len(ilines)*26
             for line in ilines:
-                draw.text((202, it_y), line,
-                         font=f_item, fill=black, anchor="lm")
-                it_y += 58
+                draw.text((196, it_y), line, font=f_item, fill=black, anchor="lm")
+                it_y += 54
 
     # ── DISCLAIMER BAR (SEBI for finance / IRDAI for insurance) ──
     disclaimer_short, _ = get_disclaimer(topic)
@@ -647,6 +733,8 @@ def create_short_video(script_data, audio_path, audio_duration,
     title = script_data.get("thumbnail_title", hook)[:42]
 
     topic_image = get_topic_image(topic or "finance")
+    # Each point gets its OWN related image (step-by-step reveal)
+    point_images = [get_topic_image(tip, seed_suffix=f"pt{i}") for i, tip in enumerate(tips[:3])]
 
     # Timing — 2 minute video
     intro = audio_duration * 0.12
@@ -657,24 +745,23 @@ def create_short_video(script_data, audio_path, audio_duration,
 
     print(f"  Timing: {audio_duration:.1f}s total | intro={intro:.1f} tip1={t1:.1f} tip2={t2:.1f} tip3={t3:.1f} outro={outro:.1f}")
 
-    # Build frames
-    f_intro   = build_frame(theme, 0, title,      tips, highlight_idx=-1, total=5, topic_image=topic_image, topic=topic)
-    f_t1_on   = build_frame(theme, 1, tips[0],    tips, highlight_idx=0,  total=5, topic_image=topic_image, topic=topic)
-    f_t1_off  = build_frame(theme, 1, tips[0],    tips, highlight_idx=-1, total=5, topic_image=topic_image, topic=topic)
-    f_t2_on   = build_frame(theme, 2, tips[1],    tips, highlight_idx=1,  total=5, topic_image=topic_image, topic=topic)
-    f_t2_off  = build_frame(theme, 2, tips[1],    tips, highlight_idx=-1, total=5, topic_image=topic_image, topic=topic)
-    f_t3_on   = build_frame(theme, 3, tips[2],    tips, highlight_idx=2,  total=5, topic_image=topic_image, topic=topic)
-    f_t3_off  = build_frame(theme, 3, tips[2],    tips, highlight_idx=-1, total=5, topic_image=topic_image, topic=topic)
-    f_outro   = build_frame(theme, 4, f"Yaad Rakho! {CHANNEL_NAME}", tips, highlight_idx=-1, total=5, topic_image=topic_image, topic=topic)
+    # Build frames — one point revealed at a time, each with its own image
+    f_intro = build_frame(theme, 0, title, tips, total=5,
+                          topic_image=topic_image, topic=topic)
+    f_t1 = build_frame(theme, 1, title, tips, total=5, topic=topic,
+                       point_image=point_images[0], point_text=tips[0])
+    f_t2 = build_frame(theme, 2, title, tips, total=5, topic=topic,
+                       point_image=point_images[1], point_text=tips[1])
+    f_t3 = build_frame(theme, 3, title, tips, total=5, topic=topic,
+                       point_image=point_images[2], point_text=tips[2])
+    f_outro = build_frame(theme, 4, f"Yaad Rakho! {CHANNEL_NAME}", tips, total=5,
+                          topic_image=topic_image, topic=topic)
 
     clips = [
         ImageClip(f_intro).set_duration(intro),
-        ImageClip(f_t1_on).set_duration(t1 * 0.80),
-        ImageClip(f_t1_off).set_duration(t1 * 0.20),
-        ImageClip(f_t2_on).set_duration(t2 * 0.80),
-        ImageClip(f_t2_off).set_duration(t2 * 0.20),
-        ImageClip(f_t3_on).set_duration(t3 * 0.80),
-        ImageClip(f_t3_off).set_duration(t3 * 0.20),
+        ImageClip(f_t1).set_duration(t1),
+        ImageClip(f_t2).set_duration(t2),
+        ImageClip(f_t3).set_duration(t3),
         ImageClip(f_outro).set_duration(outro),
     ]
 
