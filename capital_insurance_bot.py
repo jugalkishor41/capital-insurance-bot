@@ -196,6 +196,62 @@ def pick_font(text, size, bold=True):
         return load_latin_font(size, bold)
     return load_font(size, bold)
 
+
+def measure_mixed(draw, text, size, bold=True):
+    """Width of a line that may mix Hindi + English words, measuring
+    each word with its own correct font (avoids using one font's
+    metrics for a script it wasn't designed for)."""
+    words = text.split()
+    total = 0
+    space_w = draw.textlength(" ", font=load_latin_font(size, bold))
+    for i, w in enumerate(words):
+        f = pick_font(w, size, bold)
+        total += draw.textlength(w, font=f)
+        if i < len(words) - 1:
+            total += space_w
+    return total
+
+
+def wrap_mixed(text, size, max_w, draw, bold=True):
+    """Like wrap(), but safe for lines mixing Hindi and English words
+    (e.g. 'SIP से 1 करोड़ का फंड')."""
+    safe_max_w = max_w * 0.90
+    words = text.split()
+    lines, cur = [], []
+    for word in words:
+        test = cur + [word]
+        tw = measure_mixed(draw, " ".join(test), size, bold)
+        if tw > safe_max_w and cur:
+            lines.append(" ".join(cur))
+            cur = [word]
+        else:
+            cur = test
+    if cur:
+        lines.append(" ".join(cur))
+    return lines
+
+
+def draw_mixed_text(draw, xy, text, size, fill, anchor="mm", bold=True):
+    """Draws a line that may mix Hindi + English words, rendering each
+    word with the font that actually has its glyphs, positioned so the
+    combined line matches the requested anchor (mm=center, lm=left)."""
+    x, y = xy
+    words = text.split()
+    total_w = measure_mixed(draw, text, size, bold)
+    space_w = draw.textlength(" ", font=load_latin_font(size, bold))
+
+    if anchor[0] == "m":
+        cx = x - total_w / 2
+    else:
+        cx = x
+
+    for i, w in enumerate(words):
+        f = pick_font(w, size, bold)
+        ww = draw.textlength(w, font=f)
+        v_anchor = "l" + anchor[1]
+        draw.text((cx, y), w, font=f, fill=fill, anchor=v_anchor)
+        cx += ww + space_w
+
 # ══════════════════════════════════════════════════════════
 #  TEXT WRAP
 # ══════════════════════════════════════════════════════════
@@ -265,6 +321,197 @@ def draw_icon(draw, cx, cy, kind, color, size=46):
         ], fill=color)
         draw.ellipse([bx - r*0.24, by + r*0.48, bx + r*0.24, by + r*0.82], fill=color)
         draw.ellipse([bx - r*0.13, by - r*1.12, bx + r*0.13, by - r*0.88], fill=color)
+
+def get_illustration_kind(text):
+    """Maps a topic/tip string to one of our original flat-design
+    illustration categories (no external images, no copyright risk)."""
+    t = (text or "").lower()
+    checks = [
+        (("sip","निवेश","invest","mutual fund","म्यूचुअल","index fund","शेयर","stock","बाजार","market"), "growth"),
+        (("टैक्स","tax","80c","elss"), "tax"),
+        (("बजट","budget","50-30-20"), "budget"),
+        (("इमरजेंसी","emergency"), "emergency"),
+        (("क्रेडिट कार्ड","credit card"), "creditcard"),
+        (("रिटायरमेंट","retirement","nps"), "retirement"),
+        (("गोल्ड","gold"), "gold"),
+        (("फिक्स्ड डिपॉजिट","fixed deposit"," fd","बैंक"), "bank"),
+        (("लोन","loan","कर्ज"), "loan"),
+        (("क्रेडिट स्कोर","credit score"), "creditscore"),
+        (("नॉमिनी","nominee"), "nominee"),
+        (("क्लेम","claim","दस्तावेज","document"), "document"),
+        (("फैमिली","family","चाइल्ड","child"), "family"),
+        (("टर्म","term","हेल्थ इंश्योरेंस","health insurance","health cover",
+          "एंडोमेंट","endowment","ulip","यूलिप","प्रीमियम","premium",
+          "क्रिटिकल इलनेस","critical illness","इंश्योरेंस","insurance"), "shield"),
+    ]
+    for keys, kind in checks:
+        if any(k in t for k in keys):
+            return kind
+    return "growth"
+
+
+def draw_illustration(draw, cx, cy, w, h, kind, theme):
+    """Original flat-design vector illustration — hand-coded shapes,
+    no external assets, drawn fresh for this bot."""
+    p, d, light = theme["primary"], theme["dark"], theme["light"]
+    white, black = (255,255,255), (30,30,30)
+    s = min(w, h)
+
+    if kind == "growth":
+        base_y = cy + s*0.28
+        heights = [0.18, 0.30, 0.44, 0.60]
+        bar_w = s*0.13
+        start_x = cx - s*0.34
+        for i, hh in enumerate(heights):
+            bx = start_x + i*(bar_w+s*0.06)
+            by = base_y - s*hh
+            col = p if i < len(heights)-1 else d
+            draw.rounded_rectangle([bx, by, bx+bar_w, base_y], radius=8, fill=col)
+        ax1, ay1 = start_x-10, base_y - s*heights[0] - 20
+        ax2, ay2 = start_x + 3*(bar_w+s*0.06) + bar_w + 20, base_y - s*heights[-1] - s*0.22
+        draw.line([ax1,ay1,ax2,ay2], fill=d, width=10)
+        ang = 28
+        import math
+        rad = math.radians(20)
+        dx, dy = math.cos(rad)*26, math.sin(rad)*26
+        draw.polygon([(ax2,ay2),(ax2-dx-14,ay2+dy-8),(ax2-dx+8,ay2+dy+14)], fill=d)
+
+    elif kind == "tax":
+        cw, ch = s*0.62, s*0.62
+        draw.rounded_rectangle([cx-cw/2, cy-ch/2, cx+cw/2, cy+ch/2], radius=18, fill=white, outline=p, width=6)
+        for r in range(4):
+            for c in range(3):
+                bx = cx-cw/2+18+c*(cw-36)/2
+                by = cy-ch/2+18+r*(ch-36)/3.6
+                draw.rounded_rectangle([bx,by,bx+ (cw-56)/3, by+18], radius=6, fill=light if (r+c)%2 else p)
+        draw.ellipse([cx+s*0.1, cy+s*0.05, cx+s*0.42, cy+s*0.37], fill=d)
+        f = load_latin_font(int(s*0.16))
+        draw.text((cx+s*0.26, cy+s*0.21), "%", font=f, fill=white, anchor="mm")
+
+    elif kind == "budget":
+        r = s*0.32
+        import math
+        segs = [0.5, 0.3, 0.2]
+        cols = [p, d, light]
+        start = -90
+        for frac, col in zip(segs, cols):
+            end = start + frac*360
+            draw.pieslice([cx-r,cy-r,cx+r,cy+r], start, end, fill=col)
+            start = end
+        draw.ellipse([cx-r*0.45,cy-r*0.45,cx+r*0.45,cy+r*0.45], fill=white)
+
+    elif kind == "emergency":
+        # Umbrella
+        r = s*0.34
+        draw.pieslice([cx-r, cy-r*0.55, cx+r, cy+r*0.75], 180, 360, fill=p)
+        for i in range(5):
+            nx = cx - r + i*(2*r/4)
+            draw.line([nx, cy+r*0.1, nx, cy+r*0.24], fill=d, width=6)
+        draw.line([cx, cy+r*0.1, cx, cy+r*0.85], fill=d, width=10)
+        draw.arc([cx-30, cy+r*0.65, cx+30, cy+r*1.05], 0, 180, fill=d, width=10)
+        draw.polygon([(cx-8,cy-r*0.7),(cx+8,cy-r*0.7),(cx,cy-r*1.0)], fill=d)
+
+    elif kind == "creditcard":
+        cw, ch = s*0.7, s*0.44
+        draw.rounded_rectangle([cx-cw/2, cy-ch/2, cx+cw/2, cy+ch/2], radius=20, fill=p, outline=d, width=4)
+        draw.rounded_rectangle([cx-cw/2, cy-ch/2+ch*0.28, cx+cw/2, cy-ch/2+ch*0.42], radius=0, fill=d)
+        draw.rounded_rectangle([cx-cw/2+22, cy+ch*0.05, cx-cw/2+80, cy+ch*0.2], radius=6, fill=light)
+        for i in range(4):
+            draw.ellipse([cx-cw/2+22+i*10, cy+ch*0.28, cx-cw/2+32+i*10, cy+ch*0.34], fill=white)
+
+    elif kind == "retirement":
+        r = s*0.22
+        draw.ellipse([cx-r, cy-s*0.42, cx+r, cy-s*0.42+2*r], fill=(250,180,60))
+        for ang in range(0, 360, 30):
+            import math
+            rad = math.radians(ang)
+            x1 = cx + math.cos(rad)*(r+8)
+            y1 = cy-s*0.42+r + math.sin(rad)*(r+8)
+            x2 = cx + math.cos(rad)*(r+26)
+            y2 = cy-s*0.42+r + math.sin(rad)*(r+26)
+            draw.line([x1,y1,x2,y2], fill=(250,180,60), width=6)
+        draw.line([cx-s*0.4, cy+s*0.18, cx+s*0.4, cy+s*0.18], fill=d, width=8)
+        draw.line([cx-s*0.05, cy+s*0.18, cx-s*0.22, cy-s*0.02], fill=p, width=10)
+        draw.line([cx-s*0.22, cy-s*0.02, cx-s*0.05, cy+s*0.18], fill=p, width=10)
+        draw.ellipse([cx-s*0.3, cy-s*0.1, cx-s*0.14, cy+s*0.06], fill=d)
+
+    elif kind == "gold":
+        for i, off in enumerate([0.18, 0.06, -0.06]):
+            bw, bh = s*0.5, s*0.14
+            by = cy + off*s
+            draw.rounded_rectangle([cx-bw/2, by-bh/2, cx+bw/2, by+bh/2],
+                                   radius=8, fill=(230,180,40), outline=(180,130,10), width=3)
+        draw.ellipse([cx-s*0.16, cy-s*0.32, cx+s*0.16, cy-s*0.06], fill=(240,195,60), outline=(180,130,10), width=3)
+        f = load_latin_font(int(s*0.13))
+        draw.text((cx, cy-s*0.19), "₹", font=f, fill=(150,105,10), anchor="mm")
+
+    elif kind == "bank":
+        bw, bh = s*0.7, s*0.4
+        bx, by = cx-bw/2, cy-bh/2+s*0.1
+        draw.polygon([(cx, by-s*0.22),(bx-10, by),(bx+bw+10, by)], fill=d)
+        draw.rectangle([bx, by, bx+bw, by+bh], fill=p)
+        for i in range(4):
+            px = bx + bw*0.15 + i*bw*0.23
+            draw.rectangle([px, by+10, px+bw*0.1, by+bh-10], fill=white)
+        draw.rectangle([bx-14, by+bh, bx+bw+14, by+bh+16], fill=d)
+
+    elif kind == "loan":
+        hw, hh = s*0.5, s*0.36
+        draw.polygon([(cx, cy-s*0.4),(cx-hw/2-14, cy-s*0.1),(cx+hw/2+14, cy-s*0.1)], fill=d)
+        draw.rectangle([cx-hw/2, cy-s*0.1, cx+hw/2, cy-s*0.1+hh], fill=p)
+        draw.rectangle([cx-hw*0.12, cy-s*0.1+hh*0.4, cx+hw*0.12, cy-s*0.1+hh], fill=white)
+        f = load_latin_font(int(s*0.14))
+        draw.ellipse([cx+s*0.16, cy+s*0.02, cx+s*0.42, cy+s*0.28], fill=(230,180,40), outline=white, width=4)
+        draw.text((cx+s*0.29, cy+s*0.15), "₹", font=f, fill=white, anchor="mm")
+
+    elif kind == "creditscore":
+        r = s*0.34
+        import math
+        draw.arc([cx-r,cy-r,cx+r,cy+r], 180, 360, fill=light, width=22)
+        draw.arc([cx-r,cy-r,cx+r,cy+r], 180, 300, fill=p, width=22)
+        rad = math.radians(240)
+        nx, ny = cx+math.cos(rad)*r*0.8, cy+math.sin(rad)*r*0.8
+        draw.line([cx,cy,nx,ny], fill=d, width=8)
+        draw.ellipse([cx-12,cy-12,cx+12,cy+12], fill=d)
+
+    elif kind == "nominee":
+        for off, col in [(-s*0.16, p), (s*0.16, d)]:
+            hx = cx+off
+            draw.ellipse([hx-s*0.09, cy-s*0.32, hx+s*0.09, cy-s*0.14], fill=col)
+            draw.rounded_rectangle([hx-s*0.15, cy-s*0.1, hx+s*0.15, cy+s*0.3], radius=18, fill=col)
+        hx1, hx2 = cx-s*0.02, cx+s*0.1
+        hy = cy - s*0.32
+        draw.polygon([(cx,hy+18),(cx-18,hy),(cx-9,hy),(cx-9,hy-14),(cx+9,hy-14),(cx+9,hy),(cx+18,hy),(cx,hy+18)], fill=(220,50,80))
+
+    elif kind == "document":
+        dw, dh = s*0.5, s*0.62
+        draw.rounded_rectangle([cx-dw/2, cy-dh/2, cx+dw/2, cy+dh/2], radius=14, fill=white, outline=p, width=5)
+        for i in range(5):
+            ly = cy-dh/2+dh*0.22+i*dh*0.13
+            draw.line([cx-dw/2+22, ly, cx+dw/2-22, ly], fill=light, width=6)
+        draw.ellipse([cx+dw*0.12, cy+dh*0.12, cx+dw*0.42, cy+dh*0.42], fill=(60,170,90))
+        f = load_latin_font(int(s*0.12))
+        draw.text((cx+dw*0.27, cy+dh*0.27), "✓", font=f, fill=white, anchor="mm")
+
+    elif kind == "family":
+        positions = [(-s*0.22, 0.85, p), (0, 1.0, d), (s*0.22, 0.7, p)]
+        for off, scale, col in positions:
+            hx = cx+off
+            rr = s*0.08*scale
+            draw.ellipse([hx-rr, cy-s*0.3*scale, hx+rr, cy-s*0.3*scale+2*rr], fill=col)
+            draw.rounded_rectangle([hx-rr*1.6, cy-s*0.14*scale, hx+rr*1.6, cy+s*0.28*scale],
+                                   radius=14, fill=col)
+
+    else:  # "shield" — default for insurance topics
+        sw, sh = s*0.5, s*0.6
+        draw.polygon([
+            (cx, cy-sh/2), (cx+sw/2, cy-sh/2+sh*0.18),
+            (cx+sw/2, cy+sh*0.08), (cx, cy+sh/2),
+            (cx-sw/2, cy+sh*0.08), (cx-sw/2, cy-sh/2+sh*0.18),
+        ], fill=p, outline=d, width=5)
+        draw.line([cx-sw*0.18, cy-sh*0.02, cx-sw*0.02, cy+sh*0.14], fill=white, width=12)
+        draw.line([cx-sw*0.02, cy+sh*0.14, cx+sw*0.22, cy-sh*0.16], fill=white, width=12)
+
 
 def get_topic_image(topic, seed_suffix=""):
     """Fetch a topic-relevant image. Tries Pexels (free API, real
@@ -420,9 +667,9 @@ def build_frame(theme, screen_num, title, tips,
         draw.ellipse([logo_cx-logo_r, logo_cy-logo_r,
                       logo_cx+logo_r, logo_cy+logo_r], fill=white)
         draw.text((logo_cx, logo_cy-18), "Capital",
-                 font=load_font(38), fill=p, anchor="mm")
+                 font=load_latin_font(38), fill=p, anchor="mm")
         draw.text((logo_cx, logo_cy+28), "Insurance",
-                 font=load_font(30), fill=d, anchor="mm")
+                 font=load_latin_font(30), fill=d, anchor="mm")
 
     # ── Channel name / handle — AUTO-SIZED pill, guaranteed-Latin font ──
     cn_font = load_latin_font(52)
@@ -477,29 +724,15 @@ def build_frame(theme, screen_num, title, tips,
 
         draw.rounded_rectangle([26, img_y1+6, W-26, img_y2+6],
                                radius=26, fill=(140,140,140))
-        if point_image and os.path.exists(point_image):
-            try:
-                pi = Image.open(point_image).convert("RGB")
-                target_w, target_h = W-52, img_y2-img_y1
-                pi_ratio = pi.width / pi.height
-                box_ratio = target_w / target_h
-                if pi_ratio > box_ratio:
-                    new_h = target_h
-                    new_w = int(new_h * pi_ratio)
-                else:
-                    new_w = target_w
-                    new_h = int(new_w / pi_ratio)
-                pi = pi.resize((new_w, new_h), Image.LANCZOS)
-                left = (new_w - target_w) // 2
-                top  = (new_h - target_h) // 2
-                pi = pi.crop((left, top, left+target_w, top+target_h))
-                img.paste(pi, (26, img_y1))
-                draw = ImageDraw.Draw(img)
-            except Exception as e:
-                print(f"  Point image error: {e}")
-                draw.rectangle([26, img_y1, W-26, img_y2], fill=light)
-        else:
-            draw.rectangle([26, img_y1, W-26, img_y2], fill=light)
+        # Card background for the illustration
+        draw.rounded_rectangle([26, img_y1, W-26, img_y2],
+                               radius=26, fill=(250,250,250))
+        illus_kind = get_illustration_kind(point_text)
+        icx = (26 + (W-26)) // 2
+        icy = (img_y1 + img_y2) // 2
+        iw  = (W-52) * 0.72
+        ih  = (img_y2 - img_y1) * 0.72
+        draw_illustration(draw, icx, icy, iw, ih, illus_kind, theme)
         draw.rounded_rectangle([26, img_y1, W-26, img_y2],
                                radius=26, outline=p, width=6)
 
@@ -515,11 +748,10 @@ def build_frame(theme, screen_num, title, tips,
                     fill=white)
         draw.text((150, footer_y+footer_h//2), str(screen_num),
                  font=f_num, fill=p, anchor="mm")
-        f_cap = pick_font(point_text, 48)
-        clines = wrap(point_text, f_cap, W-260, draw)
+        clines = wrap_mixed(point_text, 48, W-260, draw)
         cy = footer_y + footer_h//2 - len(clines)*28
         for line in clines:
-            draw.text((205, cy), line, font=f_cap, fill=white, anchor="lm")
+            draw_mixed_text(draw, (205, cy), line, 48, white, anchor="lm")
             cy += 56
 
     # ══════════════════════════════════════════════════════
@@ -533,20 +765,16 @@ def build_frame(theme, screen_num, title, tips,
                                radius=26, fill=(180,180,180))
         draw.rounded_rectangle([28, ty, W-28, ty+th],
                                radius=26, fill=white, outline=p, width=6)
-        f_title = pick_font(title, 62)
-        tlines = wrap(title, f_title, W-140, draw)
+        tlines = wrap_mixed(title, 62, W-140, draw)
         t_y = ty + th//2 - len(tlines)*36 - 40
         for line in tlines:
-            draw.text((W//2+2, t_y+2), line, font=f_title,
-                     fill=light, anchor="mm")
-            draw.text((W//2, t_y), line, font=f_title,
-                     fill=p, anchor="mm")
+            draw_mixed_text(draw, (W//2+2, t_y+2), line, 62, light, anchor="mm")
+            draw_mixed_text(draw, (W//2, t_y), line, 62, p, anchor="mm")
             t_y += 74
 
         # Teaser row — hints 3 points are coming, without revealing them
-        f_teaser = pick_font("3 जरूरी पॉइंट्स आगे", 34)
         draw.text((W//2, ty+th-70), "3 जरूरी पॉइंट्स आगे",
-                 font=f_teaser, fill=d, anchor="mm")
+                 font=pick_font("3 जरूरी पॉइंट्स आगे", 34), fill=d, anchor="mm")
         for i in range(3):
             cx = W//2 - 90 + i*90
             cy = ty + th - 20
@@ -566,11 +794,10 @@ def build_frame(theme, screen_num, title, tips,
                                radius=22, fill=(180,180,180))
         draw.rounded_rectangle([28, ty, W-28, ty+th],
                                radius=22, fill=white, outline=p, width=5)
-        f_title = pick_font(title, 50)
-        tlines = wrap(title, f_title, W-120, draw)
+        tlines = wrap_mixed(title, 50, W-120, draw)
         t_y = ty + th//2 - len(tlines)*28
         for line in tlines:
-            draw.text((W//2, t_y), line, font=f_title, fill=p, anchor="mm")
+            draw_mixed_text(draw, (W//2, t_y), line, 50, p, anchor="mm")
             t_y += 58
 
         item_start = ty + th + 20
@@ -581,7 +808,6 @@ def build_frame(theme, screen_num, title, tips,
             iy = item_start + idx * (item_h + gap)
             if iy + item_h > H - 230:
                 break
-            f_item = pick_font(tip, 44)
             draw.rounded_rectangle([34, iy+6, W-24, iy+item_h+6],
                                    radius=22, fill=(150,150,150))
             draw.rounded_rectangle([28, iy, W-28, iy+item_h],
@@ -592,10 +818,10 @@ def build_frame(theme, screen_num, title, tips,
                         fill=d)
             draw.text((142, iy+item_h//2), str(idx+1),
                      font=f_num, fill=white, anchor="mm")
-            ilines = wrap(tip, f_item, W-230, draw)
+            ilines = wrap_mixed(tip, 44, W-230, draw)
             it_y = iy + item_h//2 - len(ilines)*26
             for line in ilines:
-                draw.text((196, it_y), line, font=f_item, fill=black, anchor="lm")
+                draw_mixed_text(draw, (196, it_y), line, 44, black, anchor="lm")
                 it_y += 54
 
     # ── DISCLAIMER BAR (SEBI for finance / IRDAI for insurance) ──
@@ -687,11 +913,10 @@ def generate_thumbnail(script_data, theme, output_path, topic_image=None):
             script_data.get("hook", "Finance Tips"))[:42]
     draw.rounded_rectangle([28, 115, TW-28, 300],
                            radius=20, fill=white, outline=p, width=4)
-    f_t = pick_font(title, 68)
-    tlines = wrap(title, f_t, TW-110, draw)
+    tlines = wrap_mixed(title, 68, TW-110, draw)
     ty = 208 - len(tlines)*36
     for line in tlines:
-        draw.text((TW//2, ty), line, font=f_t, fill=p, anchor="mm")
+        draw_mixed_text(draw, (TW//2, ty), line, 68, p, anchor="mm")
         ty += 74
 
     # Tips
@@ -704,9 +929,7 @@ def generate_thumbnail(script_data, theme, output_path, topic_image=None):
                                radius=18, fill=p)
         draw.text((55, tip_y+45), str(i+1),
                  font=load_latin_font(44), fill=white, anchor="mm")
-        f_tip = pick_font(tip, 44)
-        draw.text((100, tip_y+45), tip[:50],
-                 font=f_tip, fill=black, anchor="lm")
+        draw_mixed_text(draw, (100, tip_y+45), tip[:50], 44, black, anchor="lm")
         tip_y += 105
 
     img.save(output_path, "JPEG", quality=95)
@@ -733,8 +956,6 @@ def create_short_video(script_data, audio_path, audio_duration,
     title = script_data.get("thumbnail_title", hook)[:42]
 
     topic_image = get_topic_image(topic or "finance")
-    # Each point gets its OWN related image (step-by-step reveal)
-    point_images = [get_topic_image(tip, seed_suffix=f"pt{i}") for i, tip in enumerate(tips[:3])]
 
     # Timing — 2 minute video
     intro = audio_duration * 0.12
@@ -748,12 +969,9 @@ def create_short_video(script_data, audio_path, audio_duration,
     # Build frames — one point revealed at a time, each with its own image
     f_intro = build_frame(theme, 0, title, tips, total=5,
                           topic_image=topic_image, topic=topic)
-    f_t1 = build_frame(theme, 1, title, tips, total=5, topic=topic,
-                       point_image=point_images[0], point_text=tips[0])
-    f_t2 = build_frame(theme, 2, title, tips, total=5, topic=topic,
-                       point_image=point_images[1], point_text=tips[1])
-    f_t3 = build_frame(theme, 3, title, tips, total=5, topic=topic,
-                       point_image=point_images[2], point_text=tips[2])
+    f_t1 = build_frame(theme, 1, title, tips, total=5, topic=topic, point_text=tips[0])
+    f_t2 = build_frame(theme, 2, title, tips, total=5, topic=topic, point_text=tips[1])
+    f_t3 = build_frame(theme, 3, title, tips, total=5, topic=topic, point_text=tips[2])
     f_outro = build_frame(theme, 4, f"Yaad Rakho! {CHANNEL_NAME}", tips, total=5,
                           topic_image=topic_image, topic=topic)
 
@@ -1324,23 +1542,22 @@ def build_long_frame(theme, chapter_num, total_chapters, heading, topic_image=No
             print(f"  BG error: {e}")
 
     # Top channel banner
-    draw.rounded_rectangle([40, 30, 560, 110], radius=30, fill=(0, 0, 0, 140))
-    draw.text((60, 70), CHANNEL_NAME, font=load_font(38), fill=white, anchor="lm")
+    draw.rounded_rectangle([40, 30, 560, 110], radius=30, fill=(0, 0, 0))
+    draw.text((60, 70), CHANNEL_NAME, font=load_latin_font(38), fill=white, anchor="lm")
 
     # Chapter badge
     draw.rounded_rectangle([LW-340, 30, LW-40, 110], radius=30, fill=p)
     draw.text((LW-190, 70), f"Chapter {chapter_num}/{total_chapters}",
-             font=load_font(30), fill=white, anchor="mm")
+             font=load_latin_font(30), fill=white, anchor="mm")
 
     # Heading card (centered)
-    f_h = load_font(72)
-    lines = wrap(heading, f_h, LW-320, draw)
+    lines = wrap_mixed(heading, 72, LW-320, draw)
     card_h = 140 + len(lines)*90
     card_y = (LH - card_h)//2
     draw.rounded_rectangle([150, card_y, LW-150, card_y+card_h], radius=30, fill=white)
     ty = card_y + 70
     for line in lines:
-        draw.text((LW//2, ty), line, font=f_h, fill=p, anchor="mm")
+        draw_mixed_text(draw, (LW//2, ty), line, 72, p, anchor="mm")
         ty += 90
 
     # Disclaimer bar
@@ -1428,16 +1645,15 @@ def generate_long_thumbnail(script_data, theme, output_path, topic_image=None):
             pass
 
     draw.rectangle([0, 0, TW, 90], fill=p)
-    draw.text((TW//2, 45), CHANNEL_HANDLE, font=load_font(38), fill=white, anchor="mm")
+    draw.text((TW//2, 45), CHANNEL_HANDLE, font=load_latin_font(38), fill=white, anchor="mm")
 
     title = script_data.get("thumbnail_title",
             script_data.get("hook", "Finance Guide"))[:35]
     draw.rounded_rectangle([40, 110, TW-40, TH-40], radius=24, fill=white, outline=p, width=5)
-    f_t = load_font(64)
-    lines = wrap(title, f_t, TW-160, draw)
+    lines = wrap_mixed(title, 64, TW-160, draw)
     ty = (TH+70 - len(lines)*70)//2
     for line in lines:
-        draw.text((TW//2, ty), line, font=f_t, fill=p, anchor="mm")
+        draw_mixed_text(draw, (TW//2, ty), line, 64, p, anchor="mm")
         ty += 76
 
     img.save(output_path, "JPEG", quality=95)
