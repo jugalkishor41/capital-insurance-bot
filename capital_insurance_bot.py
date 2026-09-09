@@ -350,6 +350,59 @@ def get_illustration_kind(text):
     return "growth"
 
 
+def draw_mascot(draw, cx, cy, size, pose, theme):
+    """Original mascot — 'Rupee Buddy', a friendly coin character.
+    Hand-drawn shapes only, no external assets, no copied IP.
+    pose: 'idle' | 'wave' | 'point' | 'happy' — cycling poses across
+    screen cuts gives a subtle sense of life/animation without needing
+    real frame-by-frame animation."""
+    import math
+    p, d = theme["primary"], theme["dark"]
+    gold = (235, 185, 55)
+    gold_d = (185, 135, 15)
+    white, black = (255,255,255), (30,30,30)
+    r = size / 2
+
+    # Body (coin)
+    draw.ellipse([cx-r, cy-r, cx+r, cy+r], fill=gold, outline=gold_d, width=max(3,int(size*0.035)))
+    draw.ellipse([cx-r*0.82, cy-r*0.82, cx+r*0.82, cy+r*0.82], outline=gold_d, width=max(2,int(size*0.02)))
+
+    # Face
+    eye_dx, eye_dy = r*0.28, -r*0.08
+    eye_r = r*0.09
+    for sx in (-1, 1):
+        ex = cx + sx*eye_dx
+        draw.ellipse([ex-eye_r, cy+eye_dy-eye_r, ex+eye_r, cy+eye_dy+eye_r], fill=black)
+        # tiny highlight
+        draw.ellipse([ex-eye_r*0.3, cy+eye_dy-eye_r, ex+eye_r*0.3, cy+eye_dy-eye_r*0.4], fill=white)
+
+    # Mouth — varies slightly by pose for a bit of expression variety
+    mouth_y = cy + r*0.22
+    if pose == "happy":
+        draw.arc([cx-r*0.32, mouth_y-r*0.22, cx+r*0.32, mouth_y+r*0.18], 10, 170, fill=black, width=max(3,int(size*0.03)))
+    else:
+        draw.arc([cx-r*0.26, mouth_y-r*0.14, cx+r*0.26, mouth_y+r*0.14], 15, 165, fill=black, width=max(3,int(size*0.03)))
+
+    # Rupee symbol on chest (below face)
+    f_rs = load_latin_font(int(r*0.5))
+    draw.text((cx, cy+r*0.55), "₹", font=f_rs, fill=gold_d, anchor="mm")
+
+    # Arms — pose-dependent
+    arm_w = max(4, int(size*0.05))
+    if pose == "wave":
+        # right arm raised, waving
+        draw.line([cx+r*0.65, cy+r*0.1, cx+r*1.15, cy-r*0.55], fill=gold_d, width=arm_w)
+        draw.ellipse([cx+r*1.15-10, cy-r*0.55-10, cx+r*1.15+10, cy-r*0.55+10], fill=gold)
+        draw.line([cx-r*0.65, cy+r*0.1, cx-r*0.95, cy+r*0.5], fill=gold_d, width=arm_w)
+    elif pose == "point":
+        draw.line([cx+r*0.65, cy+r*0.05, cx+r*1.3, cy-r*0.05], fill=gold_d, width=arm_w)
+        draw.ellipse([cx+r*1.3-9, cy-r*0.05-9, cx+r*1.3+9, cy-r*0.05+9], fill=gold)
+        draw.line([cx-r*0.65, cy+r*0.1, cx-r*0.95, cy+r*0.5], fill=gold_d, width=arm_w)
+    else:  # idle / happy
+        draw.line([cx-r*0.65, cy+r*0.1, cx-r*0.95, cy+r*0.5], fill=gold_d, width=arm_w)
+        draw.line([cx+r*0.65, cy+r*0.1, cx+r*0.95, cy+r*0.5], fill=gold_d, width=arm_w)
+
+
 def draw_illustration(draw, cx, cy, w, h, kind, theme):
     """Original flat-design vector illustration — hand-coded shapes,
     no external assets, drawn fresh for this bot."""
@@ -599,7 +652,7 @@ def get_topic_image(topic, seed_suffix=""):
 # ══════════════════════════════════════════════════════════
 def build_frame(theme, screen_num, title, tips,
                 highlight_idx=-1, total=5, topic_image=None, topic=None,
-                point_image=None, point_text=None):
+                point_image=None, point_text=None, layout="stacked"):
     p     = theme["primary"]
     d     = theme["dark"]
     bg    = theme["bg"]
@@ -705,6 +758,7 @@ def build_frame(theme, screen_num, title, tips,
     # ══════════════════════════════════════════════════════
     #  MODE 1: SINGLE-POINT REVEAL (screens 1, 2, 3)
     #  Large point-specific image + caption in the FOOTER
+    #  3 alternating layouts for visual variety across videos
     # ══════════════════════════════════════════════════════
     if point_text is not None:
         badge_y = banner_h + 20
@@ -716,25 +770,65 @@ def build_frame(theme, screen_num, title, tips,
         draw.text((118, badge_y+32), f"पॉइंट {screen_num} / 3",
                  font=f_lbl, fill=p, anchor="lm")
 
-        # ── Large point image ──────────────────────────────
         img_y1 = badge_y + 84
         footer_h = 175
         footer_y = H - 285 - footer_h - 18
         img_y2 = footer_y - 15
-
-        draw.rounded_rectangle([26, img_y1+6, W-26, img_y2+6],
-                               radius=26, fill=(140,140,140))
-        # Card background for the illustration
-        draw.rounded_rectangle([26, img_y1, W-26, img_y2],
-                               radius=26, fill=(250,250,250))
         illus_kind = get_illustration_kind(point_text)
-        icx = (26 + (W-26)) // 2
-        icy = (img_y1 + img_y2) // 2
-        iw  = (W-52) * 0.72
-        ih  = (img_y2 - img_y1) * 0.72
-        draw_illustration(draw, icx, icy, iw, ih, illus_kind, theme)
-        draw.rounded_rectangle([26, img_y1, W-26, img_y2],
-                               radius=26, outline=p, width=6)
+        mascot_poses = {1: "wave", 2: "point", 3: "happy"}
+        mpose = mascot_poses.get(screen_num, "idle")
+
+        if layout == "split":
+            # Left color panel (illustration) + right white panel (big numeral)
+            mid_x = (26 + (W-26)) // 2
+            draw.rounded_rectangle([26, img_y1+6, W-26, img_y2+6],
+                                   radius=26, fill=(140,140,140))
+            draw.rounded_rectangle([26, img_y1, mid_x, img_y2],
+                                   radius=0, fill=light)
+            draw.rounded_rectangle([mid_x, img_y1, W-26, img_y2],
+                                   radius=0, fill=(250,250,250))
+            draw.rounded_rectangle([26, img_y1, W-26, img_y2],
+                                   radius=26, outline=p, width=6)
+            draw.line([mid_x, img_y1+10, mid_x, img_y2-10], fill=p, width=4)
+            icx = (26 + mid_x) // 2
+            icy = (img_y1 + img_y2) // 2
+            iw  = (mid_x-26) * 0.7
+            ih  = (img_y2 - img_y1) * 0.7
+            draw_illustration(draw, icx, icy, iw, ih, illus_kind, theme)
+            f_num_big = load_latin_font(int((img_y2-img_y1)*0.55))
+            draw.text(((mid_x+(W-26))//2, (img_y1+img_y2)//2), str(screen_num),
+                     font=f_num_big, fill=p, anchor="mm")
+            draw_mascot(draw, mid_x+70, img_y1+70, 90, mpose, theme)
+
+        elif layout == "badge":
+            # Circular badge illustration on a soft gradient card
+            draw.rounded_rectangle([26, img_y1+6, W-26, img_y2+6],
+                                   radius=26, fill=(140,140,140))
+            draw.rounded_rectangle([26, img_y1, W-26, img_y2],
+                                   radius=26, fill=light, outline=p, width=6)
+            bcx = (26 + (W-26)) // 2
+            bcy = (img_y1 + img_y2) // 2
+            brad = min(W-100, img_y2-img_y1-60) // 2
+            for g in range(3, 0, -1):
+                draw.ellipse([bcx-brad-g*8, bcy-brad-g*8, bcx+brad+g*8, bcy+brad+g*8],
+                            outline=p, width=3)
+            draw.ellipse([bcx-brad, bcy-brad, bcx+brad, bcy+brad], fill=white, outline=p, width=6)
+            draw_illustration(draw, bcx, bcy, brad*1.15, brad*1.15, illus_kind, theme)
+            draw_mascot(draw, W-115, img_y1+95, 100, mpose, theme)
+
+        else:  # "stacked" — default
+            draw.rounded_rectangle([26, img_y1+6, W-26, img_y2+6],
+                                   radius=26, fill=(140,140,140))
+            draw.rounded_rectangle([26, img_y1, W-26, img_y2],
+                                   radius=26, fill=(250,250,250))
+            icx = (26 + (W-26)) // 2
+            icy = (img_y1 + img_y2) // 2
+            iw  = (W-52) * 0.68
+            ih  = (img_y2 - img_y1) * 0.68
+            draw_illustration(draw, icx, icy, iw, ih, illus_kind, theme)
+            draw.rounded_rectangle([26, img_y1, W-26, img_y2],
+                                   radius=26, outline=p, width=6)
+            draw_mascot(draw, W-110, img_y1+95, 100, mpose, theme)
 
         # ── Footer caption (the point text lives HERE, not up top) ──
         draw.rounded_rectangle([28, footer_y+6, W-28, footer_y+footer_h+6],
@@ -783,6 +877,8 @@ def build_frame(theme, screen_num, title, tips,
             draw.text((cx, cy), str(i+1), font=load_latin_font(34),
                      fill=p, anchor="mm")
 
+        draw_mascot(draw, W-115, ty+95, 110, "wave", theme)
+
     # ══════════════════════════════════════════════════════
     #  MODE 3: OUTRO RECAP (screen 4) — all 3 points shown
     #  together as a summary, now that they've been revealed
@@ -799,6 +895,7 @@ def build_frame(theme, screen_num, title, tips,
         for line in tlines:
             draw_mixed_text(draw, (W//2, t_y), line, 50, p, anchor="mm")
             t_y += 58
+        draw_mascot(draw, W-95, ty+70, 90, "happy", theme)
 
         item_start = ty + th + 20
         item_h     = 145
@@ -956,6 +1053,8 @@ def create_short_video(script_data, audio_path, audio_duration,
     title = script_data.get("thumbnail_title", hook)[:42]
 
     topic_image = get_topic_image(topic or "finance")
+    video_layout = random.choice(["stacked", "split", "badge"])
+    print(f"  Layout template: {video_layout}")
 
     # Timing — 2 minute video
     intro = audio_duration * 0.12
@@ -969,9 +1068,9 @@ def create_short_video(script_data, audio_path, audio_duration,
     # Build frames — one point revealed at a time, each with its own image
     f_intro = build_frame(theme, 0, title, tips, total=5,
                           topic_image=topic_image, topic=topic)
-    f_t1 = build_frame(theme, 1, title, tips, total=5, topic=topic, point_text=tips[0])
-    f_t2 = build_frame(theme, 2, title, tips, total=5, topic=topic, point_text=tips[1])
-    f_t3 = build_frame(theme, 3, title, tips, total=5, topic=topic, point_text=tips[2])
+    f_t1 = build_frame(theme, 1, title, tips, total=5, topic=topic, point_text=tips[0], layout=video_layout)
+    f_t2 = build_frame(theme, 2, title, tips, total=5, topic=topic, point_text=tips[1], layout=video_layout)
+    f_t3 = build_frame(theme, 3, title, tips, total=5, topic=topic, point_text=tips[2], layout=video_layout)
     f_outro = build_frame(theme, 4, f"Yaad Rakho! {CHANNEL_NAME}", tips, total=5,
                           topic_image=topic_image, topic=topic)
 
