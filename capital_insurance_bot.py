@@ -322,6 +322,102 @@ def draw_icon(draw, cx, cy, kind, color, size=46):
         draw.ellipse([bx - r*0.24, by + r*0.48, bx + r*0.24, by + r*0.82], fill=color)
         draw.ellipse([bx - r*0.13, by - r*1.12, bx + r*0.13, by - r*0.88], fill=color)
 
+def draw_flow_diagram(draw, cx, cy, w, h, steps, theme):
+    """Cause-effect flow diagram — 2-4 labeled boxes connected by arrows.
+    e.g. ['Earnings ↓', 'Investor Sentiment ↓', 'Price ↓']"""
+    import math
+    p, d, light = theme["primary"], theme["dark"], theme["light"]
+    white, black = (255,255,255), (30,30,30)
+    n = max(2, min(4, len(steps)))
+    steps = steps[:n]
+
+    box_w = w * 0.78
+    box_h = h * 0.16
+    gap   = h * 0.10
+    total_h = n*box_h + (n-1)*gap
+    start_y = cy - total_h/2
+
+    for i, step in enumerate(steps):
+        by = start_y + i*(box_h+gap)
+        bx1, bx2 = cx-box_w/2, cx+box_w/2
+        col = p if i == n-1 else white
+        txt_col = white if i == n-1 else black
+        draw.rounded_rectangle([bx1+4, by+4, bx2+4, by+box_h+4], radius=16, fill=(150,150,150))
+        draw.rounded_rectangle([bx1, by, bx2, by+box_h], radius=16, fill=col, outline=p, width=4)
+        f = pick_font(step, int(box_h*0.42))
+        draw_mixed_text(draw, (cx, by+box_h/2), step, int(box_h*0.42), txt_col, anchor="mm")
+        if i < n-1:
+            ax = cx
+            ay1 = by+box_h+6
+            ay2 = by+box_h+gap-6
+            draw.line([ax, ay1, ax, ay2], fill=d, width=8)
+            draw.polygon([(ax-14, ay2-6), (ax+14, ay2-6), (ax, ay2+14)], fill=d)
+
+
+def draw_comparison(draw, cx, cy, w, h, theme, label_a, value_a, label_b, value_b):
+    """Side-by-side comparison boxes — e.g. dividends ₹54,000 vs ₹7,700.
+    The larger value is highlighted in the theme's primary color."""
+    p, d, light = theme["primary"], theme["dark"], theme["light"]
+    white, black = (255,255,255), (30,30,30)
+
+    def _num(v):
+        s = str(v).lower().replace(",", "").replace("₹", "").replace("$", "").replace("%", "").strip()
+        mult = 1
+        for suf, m in (("crore",1e7),("cr",1e7),("lakh",1e5),("lac",1e5),("l",1e5),
+                       ("million",1e6),("m",1e6),("billion",1e9),("b",1e9),("k",1e3)):
+            if s.endswith(suf):
+                s = s[:-len(suf)].strip()
+                mult = m
+                break
+        try:
+            return float(s) * mult
+        except Exception:
+            return 0
+
+    a_bigger = _num(value_a) >= _num(value_b)
+    box_w = w*0.44
+    box_h = min(h*0.7, w*0.6)  # cap height so value text has room, avoids VS overlap
+    gap = w*0.08
+    x1 = cx - box_w - gap/2
+    x2 = cx + gap/2
+    by = cy - box_h/2
+
+    for (bx, label, value, is_bigger) in [
+        (x1, label_a, value_a, a_bigger), (x2, label_b, value_b, not a_bigger)
+    ]:
+        col = p if is_bigger else light
+        txt_col = white if is_bigger else black
+        draw.rounded_rectangle([bx+4, by+4, bx+box_w+4, by+box_h+4], radius=20, fill=(150,150,150))
+        draw.rounded_rectangle([bx, by, bx+box_w, by+box_h], radius=20, fill=col, outline=p, width=5)
+        f_val = load_latin_font(int(box_h*0.17))
+        draw.text((bx+box_w/2, by+box_h*0.30), str(value), font=f_val, fill=txt_col, anchor="mm")
+        f_lbl = pick_font(str(label), int(box_h*0.11))
+        draw_mixed_text(draw, (bx+box_w/2, by+box_h*0.75), str(label), int(box_h*0.11), txt_col, anchor="mm")
+        if is_bigger:
+            draw.polygon([(bx+box_w/2-22, by-16),(bx+box_w/2+22, by-16),(bx+box_w/2, by-44)], fill=d)
+
+    f_vs = load_latin_font(int(min(h,w)*0.09))
+    vs_r = min(h,w)*0.055
+    draw.ellipse([cx-vs_r, cy-vs_r, cx+vs_r, cy+vs_r], fill=d, outline=white, width=4)
+    draw.text((cx, cy), "VS", font=f_vs, fill=white, anchor="mm")
+
+
+def draw_point_visual(draw, cx, cy, w, h, visual_spec, point_text, theme):
+    """Renders whichever visual the script asked for this point:
+    icon (default), comparison boxes, or a cause-effect flow diagram."""
+    spec = visual_spec or {"type": "icon"}
+    vtype = spec.get("type", "icon")
+    if vtype == "comparison":
+        draw_comparison(draw, cx, cy, w, h, theme,
+                        spec["label_a"], spec["value_a"],
+                        spec["label_b"], spec["value_b"])
+    elif vtype == "flow":
+        draw_flow_diagram(draw, cx, cy, w, h, spec["steps"], theme)
+    else:
+        illus_kind = get_illustration_kind(point_text)
+        draw_illustration(draw, cx, cy, w, h, illus_kind, theme)
+
+
 def get_illustration_kind(text):
     """Maps a topic/tip string to one of our original flat-design
     illustration categories (no external images, no copyright risk)."""
@@ -652,7 +748,8 @@ def get_topic_image(topic, seed_suffix=""):
 # ══════════════════════════════════════════════════════════
 def build_frame(theme, screen_num, title, tips,
                 highlight_idx=-1, total=5, topic_image=None, topic=None,
-                point_image=None, point_text=None, layout="stacked"):
+                point_image=None, point_text=None, layout="stacked",
+                visual_spec=None):
     p     = theme["primary"]
     d     = theme["dark"]
     bg    = theme["bg"]
@@ -774,7 +871,6 @@ def build_frame(theme, screen_num, title, tips,
         footer_h = 175
         footer_y = H - 285 - footer_h - 18
         img_y2 = footer_y - 15
-        illus_kind = get_illustration_kind(point_text)
         mascot_poses = {1: "wave", 2: "point", 3: "happy"}
         mpose = mascot_poses.get(screen_num, "idle")
 
@@ -794,7 +890,7 @@ def build_frame(theme, screen_num, title, tips,
             icy = (img_y1 + img_y2) // 2
             iw  = (mid_x-26) * 0.7
             ih  = (img_y2 - img_y1) * 0.7
-            draw_illustration(draw, icx, icy, iw, ih, illus_kind, theme)
+            draw_point_visual(draw, icx, icy, iw, ih, visual_spec, point_text, theme)
             f_num_big = load_latin_font(int((img_y2-img_y1)*0.55))
             draw.text(((mid_x+(W-26))//2, (img_y1+img_y2)//2), str(screen_num),
                      font=f_num_big, fill=p, anchor="mm")
@@ -813,7 +909,7 @@ def build_frame(theme, screen_num, title, tips,
                 draw.ellipse([bcx-brad-g*8, bcy-brad-g*8, bcx+brad+g*8, bcy+brad+g*8],
                             outline=p, width=3)
             draw.ellipse([bcx-brad, bcy-brad, bcx+brad, bcy+brad], fill=white, outline=p, width=6)
-            draw_illustration(draw, bcx, bcy, brad*1.15, brad*1.15, illus_kind, theme)
+            draw_point_visual(draw, bcx, bcy, brad*1.15, brad*1.15, visual_spec, point_text, theme)
             draw_mascot(draw, W-115, img_y1+95, 100, mpose, theme)
 
         else:  # "stacked" — default
@@ -825,7 +921,7 @@ def build_frame(theme, screen_num, title, tips,
             icy = (img_y1 + img_y2) // 2
             iw  = (W-52) * 0.68
             ih  = (img_y2 - img_y1) * 0.68
-            draw_illustration(draw, icx, icy, iw, ih, illus_kind, theme)
+            draw_point_visual(draw, icx, icy, iw, ih, visual_spec, point_text, theme)
             draw.rounded_rectangle([26, img_y1, W-26, img_y2],
                                    radius=26, outline=p, width=6)
             draw_mascot(draw, W-110, img_y1+95, 100, mpose, theme)
@@ -1073,7 +1169,11 @@ def create_short_video(script_data, audio_path, audio_duration,
     title = script_data.get("thumbnail_title", hook)[:42]
 
     topic_image = get_topic_image(topic or "finance")
-    video_layout = random.choice(["stacked", "split", "badge"])
+    visuals = script_data.get("visuals", [{"type":"icon"}]*3)
+    while len(visuals) < 3:
+        visuals.append({"type": "icon"})
+    has_rich_visual = any(v.get("type") in ("comparison", "flow") for v in visuals[:3])
+    video_layout = "stacked" if has_rich_visual else random.choice(["stacked", "split", "badge"])
     print(f"  Layout template: {video_layout}")
 
     # Timing — 2 minute video
@@ -1088,9 +1188,9 @@ def create_short_video(script_data, audio_path, audio_duration,
     # Build frames — one point revealed at a time, each with its own image
     f_intro = build_frame(theme, 0, title, tips, total=5,
                           topic_image=topic_image, topic=topic)
-    f_t1 = build_frame(theme, 1, title, tips, total=5, topic=topic, point_text=tips[0], layout=video_layout)
-    f_t2 = build_frame(theme, 2, title, tips, total=5, topic=topic, point_text=tips[1], layout=video_layout)
-    f_t3 = build_frame(theme, 3, title, tips, total=5, topic=topic, point_text=tips[2], layout=video_layout)
+    f_t1 = build_frame(theme, 1, title, tips, total=5, topic=topic, point_text=tips[0], layout=video_layout, visual_spec=visuals[0])
+    f_t2 = build_frame(theme, 2, title, tips, total=5, topic=topic, point_text=tips[1], layout=video_layout, visual_spec=visuals[1])
+    f_t3 = build_frame(theme, 3, title, tips, total=5, topic=topic, point_text=tips[2], layout=video_layout, visual_spec=visuals[2])
     f_outro = build_frame(theme, 4, f"Yaad Rakho! {CHANNEL_NAME}", tips, total=5,
                           topic_image=topic_image, topic=topic)
 
@@ -1141,6 +1241,11 @@ def generate_finance_script(topic, lang="hi"):
         "    \"Short powerful Hindi point 2 MAX 38 chars\",\n"
         "    \"Short powerful Hindi point 3 MAX 38 chars\"\n"
         "  ],\n"
+        "  \"visuals\": [\n"
+        "    {\"type\": \"icon\"},\n"
+        "    {\"type\": \"icon\"},\n"
+        "    {\"type\": \"icon\"}\n"
+        "  ],\n"
         "  \"thumbnail_title\": \"Bold Hindi text MAX 32 chars\",\n"
         "  \"pinned_comment\": \"Engaging question for viewers in Hindi\"\n"
         "}\n\n"
@@ -1150,7 +1255,15 @@ def generate_finance_script(topic, lang="hi"):
         f"3. Description hashtags: {hashtag_set}\n"
         "4. script: 280-300 words, conversational Hindi, factually careful (no guaranteed-return claims for finance, no false claim-approval promises for insurance)\n"
         f"5. At the very end of the script, naturally mention: \"{disclaimer_line}\"\n"
-        "6. Return ONLY JSON, no other text"
+        "6. VISUALS ARRAY — exactly 3 objects, one per key_point, in order. Each object's \"type\" is one of:\n"
+        "   - \"icon\" — default, a themed icon illustration for the point (use this most of the time)\n"
+        "   - \"comparison\" — ONLY if that key_point compares two concrete numbers/options. Add fields:\n"
+        "     \"label_a\", \"value_a\" (short, e.g. \"₹54,000\" or \"12%\"), \"label_b\", \"value_b\"\n"
+        "   - \"flow\" — ONLY if that key_point describes a 2-4 step cause-and-effect chain. Add field:\n"
+        "     \"steps\": [\"short step 1\", \"short step 2\", \"short step 3\"] (each under 20 Hindi chars)\n"
+        "   Most videos should be all \"icon\" type — only use comparison/flow when the point is GENUINELY about\n"
+        "   comparing two numbers or a clear multi-step chain. Never force it.\n"
+        "7. Return ONLY JSON, no other text"
     )
 
     completion = groq_client.chat.completions.create(
@@ -1197,6 +1310,35 @@ def generate_finance_script(topic, lang="hi"):
         fixed.append(fallbacks[len(fixed)])
     data["key_points"] = fixed[:3]
 
+    # Validate visuals — must be exactly 3 well-formed entries, else fall
+    # back to plain "icon" (which always works via keyword matching)
+    raw_visuals = data.get("visuals", [])
+    fixed_visuals = []
+    if isinstance(raw_visuals, list):
+        for v in raw_visuals[:3]:
+            if not isinstance(v, dict):
+                fixed_visuals.append({"type": "icon"})
+                continue
+            vtype = v.get("type", "icon")
+            if vtype == "comparison" and all(
+                v.get(k) for k in ("label_a", "value_a", "label_b", "value_b")
+            ):
+                fixed_visuals.append({
+                    "type": "comparison",
+                    "label_a": str(v["label_a"])[:20], "value_a": str(v["value_a"])[:12],
+                    "label_b": str(v["label_b"])[:20], "value_b": str(v["value_b"])[:12],
+                })
+            elif vtype == "flow" and isinstance(v.get("steps"), list) and len(v["steps"]) >= 2:
+                fixed_visuals.append({
+                    "type": "flow",
+                    "steps": [str(s)[:22] for s in v["steps"][:4]],
+                })
+            else:
+                fixed_visuals.append({"type": "icon"})
+    while len(fixed_visuals) < 3:
+        fixed_visuals.append({"type": "icon"})
+    data["visuals"] = fixed_visuals[:3]
+
     hook = str(data.get("hook", "पैसों का ये राज़")).strip()
     data["hook"] = hook[:40]
 
@@ -1209,6 +1351,7 @@ def generate_finance_script(topic, lang="hi"):
     print(f"  Category: {data['_category']}")
     print(f"  Title: {data['title']}")
     print(f"  Tips: {data['key_points']}")
+    print(f"  Visuals: {[v['type'] for v in data['visuals']]}")
     return data
 
 # ══════════════════════════════════════════════════════════
@@ -1583,7 +1726,7 @@ def generate_long_script(topic, lang="hi"):
         '  "description": "SEO description 600-800 chars covering all chapters, then 15 hashtags mix Hindi+English",\n'
         '  "hook": "First 10-second dramatic hook line, MAX 60 chars",\n'
         '  "chapters": [\n'
-        '    {"heading":"Chapter title MAX 40 chars","narration":"350-420 words natural Hindi speech, explain with real examples and numbers"}\n'
+        '    {"heading":"Chapter title MAX 40 chars","narration":"350-420 words natural Hindi speech, explain with real examples and numbers","visual":{"type":"icon"}}\n'
         "    // exactly 6 such chapter objects\n"
         "  ],\n"
         '  "thumbnail_title": "Bold Hindi text MAX 35 chars",\n'
@@ -1596,7 +1739,14 @@ def generate_long_script(topic, lang="hi"):
         "3. Be factually careful — no guaranteed-return claims for finance topics, "
         "no guaranteed-claim-approval promises for insurance topics\n"
         f"4. In the final chapter, naturally mention this disclaimer: \"{disclaimer_line}\"\n"
-        "5. Return ONLY the JSON object, no other text, no markdown fences"
+        "5. Each chapter's \"visual\" object has a \"type\": one of:\n"
+        "   - \"icon\" — default themed icon (use for most chapters)\n"
+        "   - \"comparison\" — ONLY if that chapter's core point compares two concrete numbers. Add fields:\n"
+        "     \"label_a\", \"value_a\", \"label_b\", \"value_b\" (short strings, e.g. \"₹54,000\")\n"
+        "   - \"flow\" — ONLY if that chapter explains a 2-4 step cause-and-effect chain. Add field:\n"
+        "     \"steps\": [\"short step 1\", \"short step 2\", \"short step 3\"] (each under 22 Hindi chars)\n"
+        "   Use comparison/flow only where it genuinely fits that chapter's content — most should be \"icon\".\n"
+        "6. Return ONLY the JSON object, no other text, no markdown fences"
     )
 
     completion = groq_client.chat.completions.create(
@@ -1632,6 +1782,24 @@ def generate_long_script(topic, lang="hi"):
     chapters = data.get("chapters", [])
     if len(chapters) < 3:
         raise RuntimeError(f"Long script mein sirf {len(chapters)} chapters bane (kam se kam 3 chahiye). Dobara try karo.")
+
+    # Validate each chapter's visual spec — fall back to "icon" if malformed
+    for ch in chapters:
+        v = ch.get("visual", {})
+        if not isinstance(v, dict):
+            ch["visual"] = {"type": "icon"}
+            continue
+        vtype = v.get("type", "icon")
+        if vtype == "comparison" and all(v.get(k) for k in ("label_a","value_a","label_b","value_b")):
+            ch["visual"] = {
+                "type": "comparison",
+                "label_a": str(v["label_a"])[:20], "value_a": str(v["value_a"])[:12],
+                "label_b": str(v["label_b"])[:20], "value_b": str(v["value_b"])[:12],
+            }
+        elif vtype == "flow" and isinstance(v.get("steps"), list) and len(v["steps"]) >= 2:
+            ch["visual"] = {"type": "flow", "steps": [str(s)[:22] for s in v["steps"][:4]]}
+        else:
+            ch["visual"] = {"type": "icon"}
     data["chapters"] = chapters
 
     title = str(data.get("title", topic)).strip()
@@ -1644,7 +1812,7 @@ def generate_long_script(topic, lang="hi"):
 # ══════════════════════════════════════════════════════════
 #  LONG-FORM LANDSCAPE FRAME BUILDER
 # ══════════════════════════════════════════════════════════
-def build_long_frame(theme, chapter_num, total_chapters, heading, topic_image=None, topic=None):
+def build_long_frame(theme, chapter_num, total_chapters, heading, topic_image=None, topic=None, visual_spec=None):
     p, d, bg = theme["primary"], theme["dark"], theme["bg"]
     white, black = (255, 255, 255), (20, 20, 20)
 
@@ -1655,34 +1823,49 @@ def build_long_frame(theme, chapter_num, total_chapters, heading, topic_image=No
         try:
             ti = Image.open(topic_image).convert("RGB").resize((LW, LH))
             overlay = Image.new("RGB", (LW, LH), bg)
-            img = Image.blend(ti, overlay, 0.75)
+            img = Image.blend(ti, overlay, 0.85)
             draw = ImageDraw.Draw(img)
         except Exception as e:
             print(f"  BG error: {e}")
 
-    # Top channel banner
-    draw.rounded_rectangle([40, 30, 560, 110], radius=30, fill=(0, 0, 0))
-    draw.text((60, 70), CHANNEL_NAME, font=load_latin_font(38), fill=white, anchor="lm")
+    # Top channel banner — auto-sized to fit CHANNEL_NAME
+    cn_font = load_latin_font(38)
+    name_w = int(draw.textlength(CHANNEL_NAME, font=cn_font)) + 46
+    draw.rounded_rectangle([40, 30, 40+name_w, 110], radius=30, fill=(0, 0, 0))
+    draw.text((63, 70), CHANNEL_NAME, font=cn_font, fill=white, anchor="lm")
 
     # Chapter badge
     draw.rounded_rectangle([LW-340, 30, LW-40, 110], radius=30, fill=p)
     draw.text((LW-190, 70), f"Chapter {chapter_num}/{total_chapters}",
              font=load_latin_font(30), fill=white, anchor="mm")
 
-    # Heading card (centered)
-    lines = wrap_mixed(heading, 72, LW-320, draw)
-    card_h = 140 + len(lines)*90
-    card_y = (LH - card_h)//2
-    draw.rounded_rectangle([150, card_y, LW-150, card_y+card_h], radius=30, fill=white)
-    ty = card_y + 70
+    # ── Split layout: heading card (left) + visual (right) ──
+    content_y1, content_y2 = 150, LH-110
+    mid_x = int(LW * 0.44)
+
+    # Left: heading card + mascot
+    draw.rounded_rectangle([60, content_y1, mid_x-20, content_y2], radius=28, fill=white)
+    lines = wrap_mixed(heading, 56, mid_x-60-60, draw)
+    ty = (content_y1+content_y2)//2 - len(lines)*36
     for line in lines:
-        draw_mixed_text(draw, (LW//2, ty), line, 72, p, anchor="mm")
-        ty += 90
+        draw_mixed_text(draw, (60+(mid_x-20-60)//2, ty), line, 56, p, anchor="mm")
+        ty += 72
+    mascot_poses = ["wave", "point", "happy", "idle"]
+    draw_mascot(draw, mid_x-110, content_y1+95, 110,
+               mascot_poses[chapter_num % len(mascot_poses)], theme)
+
+    # Right: visual (icon / comparison / flow)
+    draw.rounded_rectangle([mid_x+20, content_y1, LW-60, content_y2], radius=28, fill=(250,250,250), outline=p, width=5)
+    vcx = (mid_x+20 + LW-60) // 2
+    vcy = (content_y1 + content_y2) // 2
+    vw  = (LW-60 - mid_x-20) * 0.72
+    vh  = (content_y2 - content_y1) * 0.72
+    draw_point_visual(draw, vcx, vcy, vw, vh, visual_spec, heading, theme)
 
     # Disclaimer bar
     disclaimer_short, _ = get_disclaimer(topic)
     draw.rectangle([0, LH-70, LW, LH], fill=(170, 15, 15))
-    draw.text((LW//2, LH-35), disclaimer_short, font=load_font(28), fill=white, anchor="mm")
+    draw.text((LW//2, LH-35), disclaimer_short, font=load_latin_font(28), fill=white, anchor="mm")
 
     return img
 
@@ -1719,7 +1902,7 @@ def create_long_video(script_data, theme, output_path, topic=None):
     for i, (ch, dur) in enumerate(zip(chapters, durations)):
         frame_img = build_long_frame(
             theme, i+1, len(chapters), ch.get("heading", f"Chapter {i+1}"),
-            topic_image=topic_image, topic=topic
+            topic_image=topic_image, topic=topic, visual_spec=ch.get("visual")
         )
         frame_path = str(temp_dir / f"frame_{i+1}.jpg")
         frame_img.save(frame_path, "JPEG", quality=92)
