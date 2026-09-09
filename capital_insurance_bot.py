@@ -849,35 +849,55 @@ def build_frame(theme, screen_num, title, tips,
             cy += 56
 
     # ══════════════════════════════════════════════════════
-    #  MODE 2: INTRO TEASER (screen 0) — hook only, tips
-    #  are NOT revealed yet (kept for the step-by-step reveal)
+    #  MODE 2: INTRO (screen 0) — same visual language as the
+    #  point screens: big topic illustration + caption in FOOTER
+    #  (tips are NOT revealed yet — kept for step-by-step reveal)
     # ══════════════════════════════════════════════════════
     elif screen_num == 0:
-        ty = banner_h + 60
-        th = 420
-        draw.rounded_rectangle([34, ty+5, W-24, ty+th+5],
-                               radius=26, fill=(180,180,180))
-        draw.rounded_rectangle([28, ty, W-28, ty+th],
-                               radius=26, fill=white, outline=p, width=6)
-        tlines = wrap_mixed(title, 62, W-140, draw)
-        t_y = ty + th//2 - len(tlines)*36 - 40
-        for line in tlines:
-            draw_mixed_text(draw, (W//2+2, t_y+2), line, 62, light, anchor="mm")
-            draw_mixed_text(draw, (W//2, t_y), line, 62, p, anchor="mm")
-            t_y += 74
+        lbl_y = banner_h + 20
+        draw.ellipse([40, lbl_y+12, 40+44, lbl_y+12+44], fill=p)
+        draw.polygon([(62,lbl_y+20),(52,lbl_y+40),(60,lbl_y+38),(56,lbl_y+52),(74,lbl_y+32),(65,lbl_y+34)], fill=white)
+        draw.text((100, lbl_y+34), "3 जरूरी पॉइंट्स आगे",
+                 font=pick_font("3 जरूरी पॉइंट्स आगे", 34), fill=p, anchor="lm")
 
-        # Teaser row — hints 3 points are coming, without revealing them
-        draw.text((W//2, ty+th-70), "3 जरूरी पॉइंट्स आगे",
-                 font=pick_font("3 जरूरी पॉइंट्स आगे", 34), fill=d, anchor="mm")
+        img_y1 = lbl_y + 84
+        footer_h = 200
+        footer_y = H - 285 - footer_h - 18
+        img_y2 = footer_y - 15
+
+        draw.rounded_rectangle([26, img_y1+6, W-26, img_y2+6],
+                               radius=26, fill=(140,140,140))
+        draw.rounded_rectangle([26, img_y1, W-26, img_y2],
+                               radius=26, fill=(250,250,250))
+        illus_kind = get_illustration_kind(title)
+        icx = (26 + (W-26)) // 2
+        icy = (img_y1 + img_y2) // 2
+        iw  = (W-52) * 0.62
+        ih  = (img_y2 - img_y1) * 0.62
+        draw_illustration(draw, icx, icy, iw, ih, illus_kind, theme)
+        draw.rounded_rectangle([26, img_y1, W-26, img_y2],
+                               radius=26, outline=p, width=6)
+        draw_mascot(draw, W-110, img_y1+95, 100, "wave", theme)
+
+        # Teaser dots — hints 3 points are coming, in the image card
         for i in range(3):
-            cx = W//2 - 90 + i*90
-            cy = ty + th - 20
+            cx = icx - 90 + i*90
+            cy = img_y2 - 55
             draw.ellipse([cx-28, cy-28, cx+28, cy+28],
                         fill=white, outline=p, width=4)
             draw.text((cx, cy), str(i+1), font=load_latin_font(34),
                      fill=p, anchor="mm")
 
-        draw_mascot(draw, W-115, ty+95, 110, "wave", theme)
+        # ── Footer caption — the hook/title lives HERE ──
+        draw.rounded_rectangle([28, footer_y+6, W-28, footer_y+footer_h+6],
+                               radius=24, fill=(130,130,130))
+        draw.rounded_rectangle([28, footer_y, W-28, footer_y+footer_h],
+                               radius=24, fill=p)
+        tlines = wrap_mixed(title, 52, W-100, draw)
+        t_y = footer_y + footer_h//2 - len(tlines)*32
+        for line in tlines:
+            draw_mixed_text(draw, (W//2, t_y), line, 52, white, anchor="mm")
+            t_y += 64
 
     # ══════════════════════════════════════════════════════
     #  MODE 3: OUTRO RECAP (screen 4) — all 3 points shown
