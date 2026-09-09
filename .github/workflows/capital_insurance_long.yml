@@ -31,7 +31,8 @@ jobs:
 
       - name: Restore youtube_token.pkl
         run: echo "${{ secrets.YOUTUBE_TOKEN_B64 }}" | tr -d ' \t\r\n' | base64 -d > youtube_token.pkl
+
       - name: Run bot (Long-form, 15 min)
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: python capital_insurance_bot.py --long
