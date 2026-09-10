@@ -426,7 +426,7 @@ def get_illustration_kind(text):
         (("sip","निवेश","invest","mutual fund","म्यूचुअल","index fund","शेयर","stock","बाजार","market"), "growth"),
         (("टैक्स","tax","80c","elss"), "tax"),
         (("बजट","budget","50-30-20"), "budget"),
-        (("इमरजेंसी","emergency"), "emergency"),
+        (("इमरजेंसी","emergency","सुरक्षा","सुरक्षित","protect","safe","secure"), "safe"),
         (("क्रेडिट कार्ड","credit card"), "creditcard"),
         (("रिटायरमेंट","retirement","nps"), "retirement"),
         (("गोल्ड","gold"), "gold"),
@@ -435,6 +435,7 @@ def get_illustration_kind(text):
         (("क्रेडिट स्कोर","credit score"), "creditscore"),
         (("नॉमिनी","nominee"), "nominee"),
         (("क्लेम","claim","दस्तावेज","document"), "document"),
+        (("एडवाइजर","advisor","एक्सपर्ट","expert","सलाह","consultant"), "handshake"),
         (("फैमिली","family","चाइल्ड","child"), "family"),
         (("टर्म","term","हेल्थ इंश्योरेंस","health insurance","health cover",
           "एंडोमेंट","endowment","ulip","यूलिप","प्रीमियम","premium",
@@ -507,23 +508,68 @@ def draw_illustration(draw, cx, cy, w, h, kind, theme):
     s = min(w, h)
 
     if kind == "growth":
-        base_y = cy + s*0.28
-        heights = [0.18, 0.30, 0.44, 0.60]
-        bar_w = s*0.13
-        start_x = cx - s*0.34
-        for i, hh in enumerate(heights):
-            bx = start_x + i*(bar_w+s*0.06)
-            by = base_y - s*hh
-            col = p if i < len(heights)-1 else d
-            draw.rounded_rectangle([bx, by, bx+bar_w, base_y], radius=8, fill=col)
-        ax1, ay1 = start_x-10, base_y - s*heights[0] - 20
-        ax2, ay2 = start_x + 3*(bar_w+s*0.06) + bar_w + 20, base_y - s*heights[-1] - s*0.22
-        draw.line([ax1,ay1,ax2,ay2], fill=d, width=10)
-        ang = 28
-        import math
-        rad = math.radians(20)
-        dx, dy = math.cos(rad)*26, math.sin(rad)*26
-        draw.polygon([(ax2,ay2),(ax2-dx-14,ay2+dy-8),(ax2-dx+8,ay2+dy+14)], fill=d)
+        style = random.choice(["bars", "line_dots", "coins_stack"])
+        if style == "bars":
+            base_y = cy + s*0.28
+            heights = [0.18, 0.30, 0.44, 0.60]
+            bar_w = s*0.13
+            start_x = cx - s*0.34
+            for i, hh in enumerate(heights):
+                bx = start_x + i*(bar_w+s*0.06)
+                by = base_y - s*hh
+                col = p if i < len(heights)-1 else d
+                draw.rounded_rectangle([bx, by, bx+bar_w, base_y], radius=8, fill=col)
+            ax1, ay1 = start_x-10, base_y - s*heights[0] - 20
+            ax2, ay2 = start_x + 3*(bar_w+s*0.06) + bar_w + 20, base_y - s*heights[-1] - s*0.22
+            draw.line([ax1,ay1,ax2,ay2], fill=d, width=10)
+            import math
+            rad = math.radians(20)
+            dx, dy = math.cos(rad)*26, math.sin(rad)*26
+            draw.polygon([(ax2,ay2),(ax2-dx-14,ay2+dy-8),(ax2-dx+8,ay2+dy+14)], fill=d)
+        elif style == "line_dots":
+            pts = [(-0.36,0.24),(-0.16,0.06),(0.04,0.14),(0.22,-0.10),(0.38,-0.28)]
+            xy = [(cx+px*s, cy+py*s) for px, py in pts]
+            for i in range(len(xy)-1):
+                draw.line([xy[i], xy[i+1]], fill=p, width=int(s*0.028))
+            for i, (x,y) in enumerate(xy):
+                r = s*0.032
+                col = d if i == len(xy)-1 else p
+                draw.ellipse([x-r,y-r,x+r,y+r], fill=col, outline=white, width=3)
+            draw.line([cx-s*0.4, cy+s*0.34, cx+s*0.4, cy+s*0.34], fill=light, width=6)
+        else:  # coins_stack
+            gold, gold_d = (230,180,40), (180,130,10)
+            for i, yoff in enumerate([0.30, 0.16, 0.02, -0.12]):
+                ew = s*(0.30 + i*0.05)
+                draw.ellipse([cx-ew/2, cy+yoff*s-s*0.05, cx+ew/2, cy+yoff*s+s*0.05],
+                            fill=gold, outline=gold_d, width=3)
+            f = load_latin_font(int(s*0.12))
+            draw.text((cx, cy-s*0.05), "₹", font=f, fill=gold_d, anchor="mm")
+            import math
+            ax1, ay1 = cx-s*0.05, cy-s*0.22
+            ax2, ay2 = cx+s*0.34, cy-s*0.5
+            draw.line([ax1,ay1,ax2,ay2], fill=d, width=8)
+            rad = math.radians(20)
+            dx, dy = math.cos(rad)*22, math.sin(rad)*22
+            draw.polygon([(ax2,ay2),(ax2-dx-12,ay2+dy-6),(ax2-dx+6,ay2+dy+12)], fill=d)
+
+    elif kind == "safe":
+        bw, bh = s*0.56, s*0.56
+        draw.rounded_rectangle([cx-bw/2, cy-bh/2, cx+bw/2, cy+bh/2], radius=16, fill=(90,90,100), outline=(50,50,60), width=6)
+        r = s*0.16
+        draw.ellipse([cx-r, cy-r, cx+r, cy+r], fill=(220,220,225), outline=(50,50,60), width=5)
+        for ang in range(0, 360, 45):
+            import math
+            rad = math.radians(ang)
+            x2, y2 = cx+math.cos(rad)*r*0.8, cy+math.sin(rad)*r*0.8
+            draw.line([cx, cy, x2, y2], fill=(50,50,60), width=4)
+        draw.rounded_rectangle([cx-bw*0.32, cy+bh*0.28, cx+bw*0.32, cy+bh*0.42], radius=6, fill=p)
+
+    elif kind == "handshake":
+        for off, col in [(-s*0.16, p), (s*0.16, d)]:
+            draw.rounded_rectangle([cx+off-s*0.1, cy-s*0.22, cx+off+s*0.1, cy+s*0.05],
+                                   radius=14, fill=col)
+        draw.ellipse([cx-s*0.14, cy-s*0.02, cx+s*0.14, cy+s*0.22], fill=(235,190,150))
+        draw.rounded_rectangle([cx-s*0.32, cy+s*0.22, cx+s*0.32, cy+s*0.34], radius=10, fill=light)
 
     elif kind == "tax":
         cw, ch = s*0.62, s*0.62
@@ -1150,20 +1196,95 @@ def generate_thumbnail(script_data, theme, output_path, topic_image=None):
 # ══════════════════════════════════════════════════════════
 #  VOICEOVER
 # ══════════════════════════════════════════════════════════
+EDGE_TTS_VOICES = ["hi-IN-MadhurNeural", "hi-IN-SwaraNeural"]
+
 def generate_voiceover(script_text, output_path, lang="hi"):
-    tts = gTTS(text=script_text, lang=lang, slow=False, tld="co.in")
-    tts.save(output_path)
-    audio = AudioFileClip(output_path)
-    dur = audio.duration
-    audio.close()
-    print(f"  Voiceover: {dur:.1f}s")
-    return dur
+    """Tries Microsoft Edge TTS first (far more natural Hindi voice than
+    gTTS), falls back to gTTS if edge-tts isn't installed or the network
+    call fails — so a missing/broken edge-tts never breaks the pipeline."""
+    try:
+        import edge_tts, asyncio
+        voice = random.choice(EDGE_TTS_VOICES)
+
+        async def _gen():
+            communicate = edge_tts.Communicate(script_text, voice, rate="+2%")
+            await communicate.save(output_path)
+
+        asyncio.run(_gen())
+        audio = AudioFileClip(output_path)
+        dur = audio.duration
+        audio.close()
+        if dur < 1:
+            raise RuntimeError("Edge TTS produced near-empty audio")
+        print(f"  Voiceover (Edge TTS, {voice}): {dur:.1f}s")
+        return dur
+    except Exception as e:
+        print(f"  Edge TTS failed ({e}), falling back to gTTS")
+        tts = gTTS(text=script_text, lang=lang, slow=False, tld="co.in")
+        tts.save(output_path)
+        audio = AudioFileClip(output_path)
+        dur = audio.duration
+        audio.close()
+        print(f"  Voiceover (gTTS fallback): {dur:.1f}s")
+        return dur
 
 # ══════════════════════════════════════════════════════════
 #  VIDEO
 # ══════════════════════════════════════════════════════════
+def build_caption_chunks(script_text, audio_duration, skip_last_frac=0.08, words_per_chunk=6):
+    """Splits the narration into short caption chunks and estimates a
+    (start, duration) for each by distributing them proportionally to
+    word count across the audio. Approximate (no real forced-alignment),
+    but good enough for readable on-screen captions synced to speech.
+    Chunks that would fall in the outro (last skip_last_frac of the
+    video, which has no picture area to caption over) are dropped."""
+    import re
+    clauses = re.split(r"[।.!?,\n]+", script_text)
+    words = []
+    for c in clauses:
+        words.extend(c.strip().split())
+    words = [w for w in words if w]
+    if not words:
+        return []
+
+    chunks = [" ".join(words[i:i+words_per_chunk]) for i in range(0, len(words), words_per_chunk)]
+    total_words = len(words)
+    usable_duration = audio_duration * (1 - skip_last_frac)
+
+    result = []
+    word_cursor = 0
+    for chunk in chunks:
+        n = len(chunk.split())
+        start = (word_cursor / total_words) * usable_duration
+        end   = ((word_cursor + n) / total_words) * usable_duration
+        word_cursor += n
+        if start >= usable_duration:
+            break
+        result.append((chunk, start, max(0.4, end - start)))
+    return result
+
+
+def make_caption_clip(text, strip_y, strip_h):
+    """Renders one caption chunk as a semi-transparent bar + white text,
+    returned as an RGB numpy array + a matching alpha mask array."""
+    img = Image.new("RGBA", (W, strip_h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    draw.rounded_rectangle([40, 6, W-40, strip_h-6], radius=18, fill=(0, 0, 0, 165))
+    lines = wrap_mixed(text, 40, W-140, draw)[:2]
+    ty = strip_h//2 - len(lines)*26
+    for line in lines:
+        draw_mixed_text(draw, (W//2, ty), line, 40, (255,255,255,255), anchor="mm")
+        ty += 52
+    arr = np.array(img)
+    rgb = arr[:, :, :3]
+    alpha = arr[:, :, 3] / 255.0
+    return rgb, alpha
+
+
 def create_short_video(script_data, audio_path, audio_duration,
                        theme, output_path, topic=None):
+    from moviepy.editor import CompositeVideoClip, CompositeAudioClip, afx
+
     tips  = script_data.get("key_points", ["Tip 1","Tip 2","Tip 3"])
     hook  = script_data.get("hook", "Finance Tips")[:42]
     title = script_data.get("thumbnail_title", hook)[:42]
@@ -1194,17 +1315,62 @@ def create_short_video(script_data, audio_path, audio_duration,
     f_outro = build_frame(theme, 4, f"Yaad Rakho! {CHANNEL_NAME}", tips, total=5,
                           topic_image=topic_image, topic=topic)
 
-    clips = [
-        ImageClip(f_intro).set_duration(intro),
-        ImageClip(f_t1).set_duration(t1),
-        ImageClip(f_t2).set_duration(t2),
-        ImageClip(f_t3).set_duration(t3),
-        ImageClip(f_outro).set_duration(outro),
-    ]
+    # Ken Burns — a subtle, slow zoom-in on each static frame so nothing
+    # feels like a dead still image. Each clip zooms independently over
+    # its own duration; CompositeVideoClip crops anything past the
+    # canvas edge, so this never needs manual re-centering math.
+    def kenburns(img_array, duration, zoom_to=1.045):
+        clip = ImageClip(img_array).set_duration(duration)
+        clip = clip.resize(lambda t: 1 + (zoom_to-1) * (t/max(duration,0.01)))
+        clip = clip.set_position(("center","center"))
+        return clip
 
-    video = concatenate_videoclips(clips, method="compose")
-    audio = AudioFileClip(audio_path)
-    video = video.set_audio(audio)
+    segments = [
+        (f_intro, intro), (f_t1, t1), (f_t2, t2), (f_t3, t3), (f_outro, outro),
+    ]
+    clips = []
+    t_cursor = 0
+    for img_arr, dur in segments:
+        clips.append(kenburns(img_arr, dur).set_start(t_cursor))
+        t_cursor += dur
+
+    layers = list(clips)
+
+    # ── Burned-in captions, synced (approximately) to the narration ──
+    script_text = script_data.get("script", "")
+    if script_text:
+        strip_h = 130
+        strip_y = 1427 - strip_h - 10  # bottom of the shared image-card zone
+        for chunk_text, start, dur in build_caption_chunks(script_text, audio_duration):
+            try:
+                rgb, alpha = make_caption_clip(chunk_text, strip_y, strip_h)
+                cclip = (ImageClip(rgb).set_duration(dur)
+                        .set_mask(ImageClip(alpha, ismask=True).set_duration(dur))
+                        .set_position((0, strip_y)).set_start(start))
+                layers.append(cclip)
+            except Exception as e:
+                print(f"  Caption chunk skipped: {e}")
+
+    video = CompositeVideoClip(layers, size=(W, H)).set_duration(t_cursor)
+
+    # ── Audio: voice + optional background music (if a track is provided) ──
+    voice = AudioFileClip(audio_path)
+    final_audio = voice
+    bgm_path = None
+    for candidate in ("bgm.mp3", "assets/bgm.mp3", "background_music.mp3"):
+        if os.path.exists(candidate):
+            bgm_path = candidate
+            break
+    if bgm_path:
+        try:
+            bgm = AudioFileClip(bgm_path).fx(afx.audio_loop, duration=voice.duration)
+            bgm = bgm.fx(afx.volumex, 0.10)
+            final_audio = CompositeAudioClip([bgm, voice])
+            print(f"  Background music: {bgm_path}")
+        except Exception as e:
+            print(f"  Background music failed ({e}), continuing with voice only")
+
+    video = video.set_audio(final_audio)
     video.write_videofile(output_path, fps=FPS, codec="libx264",
                          audio_codec="aac", threads=4, logger=None)
     print(f"  Video: {output_path}")
@@ -1213,6 +1379,33 @@ def create_short_video(script_data, audio_path, audio_duration,
 # ══════════════════════════════════════════════════════════
 #  SEO SCRIPT GENERATOR
 # ══════════════════════════════════════════════════════════
+def get_market_snapshot():
+    """Fetches today's real Nifty 50 + Sensex level and day-change via
+    yfinance, so the AI script can reference ACTUAL current numbers
+    instead of hallucinated ones. Returns None (silently) on any failure
+    — network issues, yfinance rate limits, market holidays — so this
+    never blocks video generation."""
+    try:
+        import yfinance as yf
+        lines = []
+        for ticker, label in [("^NSEI", "Nifty 50"), ("^BSESN", "Sensex")]:
+            t = yf.Ticker(ticker)
+            hist = t.history(period="2d")
+            if len(hist) >= 2:
+                today = hist["Close"].iloc[-1]
+                prev = hist["Close"].iloc[-2]
+                pct = (today - prev) / prev * 100
+                arrow = "▲" if pct >= 0 else "▼"
+                lines.append(f"{label}: {today:,.0f} {arrow} {pct:+.2f}%")
+        if lines:
+            snapshot = " | ".join(lines)
+            print(f"  Market snapshot: {snapshot}")
+            return snapshot
+    except Exception as e:
+        print(f"  Market data unavailable ({e}), continuing without it")
+    return None
+
+
 def generate_finance_script(topic, lang="hi"):
     groq_client = Groq(api_key=GEMINI_API_KEY)
 
@@ -1225,10 +1418,17 @@ def generate_finance_script(topic, lang="hi"):
         "#फाइनेंस #Finance #CapitalInsuranceInvestments #Investment #SIP #MoneyTips #PersonalFinance"
     )
 
+    market_snapshot = get_market_snapshot() if not is_insurance else None
+    market_line = (
+        f"TODAY'S REAL MARKET DATA (use this instead of guessing, if relevant to the topic): {market_snapshot}\n"
+        if market_snapshot else ""
+    )
+
     prompt = (
         "You are a VIRAL Hindi YouTube Finance & Insurance content creator for Indian audience.\n"
         f"Channel: {CHANNEL_NAME} — Paisa Samjho, Future Sanwaro\n"
         f"Category: {category}\n"
+        + market_line +
         "Topic: " + topic + "\n\n"
         "Create a VIRAL finance/insurance video script. Return ONLY valid JSON:\n"
         "{\n"
@@ -1357,6 +1557,42 @@ def generate_finance_script(topic, lang="hi"):
 # ══════════════════════════════════════════════════════════
 #  TOPIC MANAGEMENT
 # ══════════════════════════════════════════════════════════
+def get_top_performing_topics(top_n=5, max_check=25):
+    """Looks at the last few uploads, fetches their real view counts via
+    the YouTube Data API, and returns the topics of the best performers
+    — used to bias future AI topic generation toward what's actually
+    working. Returns [] on any failure (auth, quota, network) so this
+    never blocks the main pipeline."""
+    if not LOG_FILE.exists():
+        return []
+    try:
+        with open(LOG_FILE, encoding="utf-8") as f:
+            log = json.load(f)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return []
+    recent = log[-max_check:]
+    ids = [e["video_id"] for e in recent if e.get("video_id")]
+    if not ids:
+        return []
+    try:
+        yt = get_youtube_client()
+        stats = {}
+        for i in range(0, len(ids), 50):
+            batch = ids[i:i+50]
+            resp = yt.videos().list(part="statistics", id=",".join(batch)).execute()
+            for item in resp.get("items", []):
+                stats[item["id"]] = int(item["statistics"].get("viewCount", 0))
+        scored = [(e["topic"], stats.get(e["video_id"], 0)) for e in recent if e.get("video_id") in stats]
+        scored.sort(key=lambda x: x[1], reverse=True)
+        top = [t for t, v in scored[:top_n] if v > 0]
+        if top:
+            print(f"  Top performing recent topics: {top}")
+        return top
+    except Exception as e:
+        print(f"  Performance feedback unavailable ({e})")
+        return []
+
+
 def get_used_topics():
     if not LOG_FILE.exists():
         return []
@@ -1400,6 +1636,11 @@ def get_next_topic(lang="hi"):
                 pass
 
     try:
+        top_performers = get_top_performing_topics()
+        performance_hint = (
+            f"\nThese recent topics performed well (high views) — lean toward similar angles/wording where natural: "
+            f"{'; '.join(top_performers)}\n" if top_performers else ""
+        )
         groq_client = Groq(api_key=GEMINI_API_KEY)
         prompt = (
             "Generate 15 VIRAL trending Hindi Finance & Insurance topics for Indian YouTube Shorts 2026.\n"
@@ -1410,6 +1651,7 @@ def get_next_topic(lang="hi"):
             "- Clickbait style but informative and factually safe (no guaranteed-return or guaranteed-claim claims)\n"
             "- About common money/insurance problems Indians face\n"
             "- Include numbers or power words\n"
+            + performance_hint +
             "Return ONLY a JSON array of Hindi strings."
         )
         comp = groq_client.chat.completions.create(
