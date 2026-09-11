@@ -454,6 +454,89 @@ def get_illustration_kind(text):
     return "growth"
 
 
+def draw_person(draw, cx, cy, size, pose, theme, variant=0):
+    """Original flat-design 2D human character — the channel's recurring
+    'guide' who acts out each point (pointing at a chart, worried about
+    a loan, protected by insurance, etc.), the way professional finance
+    explainer videos use a narrator character. Hand-drawn shapes only.
+    variant: 0/1/2 cycles skin tone + outfit color for visual variety."""
+    import math
+    p, d = theme["primary"], theme["dark"]
+    skins = [(240,200,165), (200,150,110), (120,80,60)]
+    outfits = [p, (60,70,110), (90,60,110)]
+    skin = skins[variant % 3]
+    outfit = outfits[variant % 3]
+    white, black = (255,255,255), (35,35,35)
+    s = size
+
+    head_r = s*0.17
+    head_cy = cy - s*0.30
+    neck_w = s*0.08
+
+    # Legs (simple, waist-down, only visible if pose is full standing)
+    leg_w = s*0.11
+    draw.rounded_rectangle([cx-s*0.14, cy+s*0.14, cx-s*0.14+leg_w, cy+s*0.5], radius=8, fill=(40,40,55))
+    draw.rounded_rectangle([cx+s*0.14-leg_w, cy+s*0.14, cx+s*0.14, cy+s*0.5], radius=8, fill=(40,40,55))
+    draw.rounded_rectangle([cx-s*0.17, cy+s*0.46, cx-s*0.17+leg_w+s*0.05, cy+s*0.52], radius=6, fill=black)
+    draw.rounded_rectangle([cx+s*0.17-leg_w-s*0.05, cy+s*0.46, cx+s*0.17, cy+s*0.52], radius=6, fill=black)
+
+    # Body (torso)
+    body_w = s*0.4
+    body_top = cy - s*0.18
+    draw.rounded_rectangle([cx-body_w/2, body_top, cx+body_w/2, cy+s*0.18], radius=s*0.12, fill=outfit)
+    # collar/tie hint
+    draw.polygon([(cx-s*0.05,body_top),(cx+s*0.05,body_top),(cx,body_top+s*0.1)], fill=white)
+
+    # Arms — pose dependent
+    arm_w = max(6, int(s*0.075))
+    sh_l = (cx-body_w/2+6, body_top+s*0.04)
+    sh_r = (cx+body_w/2-6, body_top+s*0.04)
+
+    if pose == "point_up":
+        draw.line([sh_r, (cx+s*0.42, cy-s*0.32)], fill=outfit, width=arm_w)
+        draw.ellipse([cx+s*0.42-9, cy-s*0.32-9, cx+s*0.42+9, cy-s*0.32+9], fill=skin)
+        draw.line([sh_l, (cx-s*0.22, cy+s*0.14)], fill=outfit, width=arm_w)
+    elif pose == "worried":
+        draw.line([sh_r, (cx+s*0.14, head_cy+s*0.02)], fill=outfit, width=arm_w)
+        draw.ellipse([cx+s*0.14-9, head_cy+s*0.02-9, cx+s*0.14+9, head_cy+s*0.02+9], fill=skin)
+        draw.line([sh_l, (cx-s*0.22, cy+s*0.1)], fill=outfit, width=arm_w)
+    elif pose == "happy_arms":
+        draw.line([sh_r, (cx+s*0.34, cy-s*0.38)], fill=outfit, width=arm_w)
+        draw.ellipse([cx+s*0.34-9, cy-s*0.38-9, cx+s*0.34+9, cy-s*0.38+9], fill=skin)
+        draw.line([sh_l, (cx-s*0.34, cy-s*0.38)], fill=outfit, width=arm_w)
+        draw.ellipse([cx-s*0.34-9, cy-s*0.38-9, cx-s*0.34+9, cy-s*0.38+9], fill=skin)
+    elif pose == "hold_out":
+        draw.line([sh_r, (cx+s*0.3, cy+s*0.05)], fill=outfit, width=arm_w)
+        draw.ellipse([cx+s*0.3-9, cy+s*0.05-9, cx+s*0.3+9, cy+s*0.05+9], fill=skin)
+        draw.line([sh_l, (cx-s*0.3, cy+s*0.05)], fill=outfit, width=arm_w)
+        draw.ellipse([cx-s*0.3-9, cy+s*0.05-9, cx-s*0.3+9, cy+s*0.05+9], fill=skin)
+    else:  # idle
+        draw.line([sh_r, (cx+s*0.24, cy+s*0.16)], fill=outfit, width=arm_w)
+        draw.line([sh_l, (cx-s*0.24, cy+s*0.16)], fill=outfit, width=arm_w)
+
+    # Head
+    draw.rounded_rectangle([cx-neck_w/2, head_cy+head_r*0.6, cx+neck_w/2, body_top+8], radius=6, fill=skin)
+    draw.ellipse([cx-head_r, head_cy-head_r, cx+head_r, head_cy+head_r], fill=skin)
+    # simple hair
+    draw.pieslice([cx-head_r, head_cy-head_r, cx+head_r, head_cy+head_r], 180, 360, fill=(45,35,30))
+    # face
+    eye_dx = head_r*0.35
+    for sx in (-1,1):
+        ex = cx+sx*eye_dx
+        draw.ellipse([ex-4, head_cy-4, ex+4, head_cy+4], fill=black)
+    if pose == "worried":
+        draw.arc([cx-head_r*0.35, head_cy+head_r*0.15, cx+head_r*0.35, head_cy+head_r*0.55], 200, 340, fill=black, width=4)
+        for sx in (-1,1):
+            bx = cx+sx*head_r*0.5
+            draw.line([bx, head_cy-head_r*0.6, bx+sx*8, head_cy-head_r*0.35], fill=(60,60,180), width=3)
+    elif pose in ("happy_arms","point_up"):
+        draw.arc([cx-head_r*0.4, head_cy+head_r*0.05, cx+head_r*0.4, head_cy+head_r*0.5], 15, 165, fill=black, width=4)
+    else:
+        draw.line([cx-head_r*0.25, head_cy+head_r*0.35, cx+head_r*0.25, head_cy+head_r*0.35], fill=black, width=3)
+
+
+PERSON_SKIN_TONES = [(235,190,150), (200,150,110), (150,105,70)]
+
 def draw_mascot(draw, cx, cy, size, pose, theme):
     """Original mascot — 'Rupee Buddy', a friendly coin character.
     Hand-drawn shapes only, no external assets, no copied IP.
@@ -515,80 +598,79 @@ def draw_illustration(draw, cx, cy, w, h, kind, theme):
     s = min(w, h)
 
     if kind == "growth":
+        variant = random.randint(0, 2)
+        px = cx - s*0.30
+        draw_person(draw, px, cy+s*0.05, s*0.62, "point_up", theme, variant)
+        icx = cx + s*0.20
         style = random.choice(["bars", "line_dots", "coins_stack"])
         if style == "bars":
             base_y = cy + s*0.28
             heights = [0.18, 0.30, 0.44, 0.60]
-            bar_w = s*0.13
-            start_x = cx - s*0.34
+            bar_w = s*0.09
+            start_x = icx - s*0.20
             for i, hh in enumerate(heights):
-                bx = start_x + i*(bar_w+s*0.06)
+                bx = start_x + i*(bar_w+s*0.045)
                 by = base_y - s*hh
                 col = p if i < len(heights)-1 else d
-                draw.rounded_rectangle([bx, by, bx+bar_w, base_y], radius=8, fill=col)
-            ax1, ay1 = start_x-10, base_y - s*heights[0] - 20
-            ax2, ay2 = start_x + 3*(bar_w+s*0.06) + bar_w + 20, base_y - s*heights[-1] - s*0.22
-            draw.line([ax1,ay1,ax2,ay2], fill=d, width=10)
+                draw.rounded_rectangle([bx, by, bx+bar_w, base_y], radius=6, fill=col)
+            ax1, ay1 = start_x-8, base_y - s*heights[0] - 16
+            ax2, ay2 = start_x + 3*(bar_w+s*0.045) + bar_w + 14, base_y - s*heights[-1] - s*0.18
+            draw.line([ax1,ay1,ax2,ay2], fill=d, width=8)
             import math
             rad = math.radians(20)
-            dx, dy = math.cos(rad)*26, math.sin(rad)*26
-            draw.polygon([(ax2,ay2),(ax2-dx-14,ay2+dy-8),(ax2-dx+8,ay2+dy+14)], fill=d)
+            dx, dy = math.cos(rad)*20, math.sin(rad)*20
+            draw.polygon([(ax2,ay2),(ax2-dx-10,ay2+dy-6),(ax2-dx+6,ay2+dy+10)], fill=d)
         elif style == "line_dots":
-            pts = [(-0.36,0.24),(-0.16,0.06),(0.04,0.14),(0.22,-0.10),(0.38,-0.28)]
-            xy = [(cx+px*s, cy+py*s) for px, py in pts]
+            pts = [(-0.20,0.24),(-0.06,0.06),(0.08,0.14),(0.20,-0.10),(0.32,-0.28)]
+            xy = [(icx+px2*s, cy+py2*s) for px2, py2 in pts]
             for i in range(len(xy)-1):
-                draw.line([xy[i], xy[i+1]], fill=p, width=int(s*0.028))
+                draw.line([xy[i], xy[i+1]], fill=p, width=int(s*0.022))
             for i, (x,y) in enumerate(xy):
-                r = s*0.032
+                r = s*0.026
                 col = d if i == len(xy)-1 else p
                 draw.ellipse([x-r,y-r,x+r,y+r], fill=col, outline=white, width=3)
-            draw.line([cx-s*0.4, cy+s*0.34, cx+s*0.4, cy+s*0.34], fill=light, width=6)
         else:  # coins_stack
             gold, gold_d = (230,180,40), (180,130,10)
-            for i, yoff in enumerate([0.30, 0.16, 0.02, -0.12]):
-                ew = s*(0.30 + i*0.05)
-                draw.ellipse([cx-ew/2, cy+yoff*s-s*0.05, cx+ew/2, cy+yoff*s+s*0.05],
+            for i, yoff in enumerate([0.30, 0.18, 0.06, -0.06]):
+                ew = s*(0.22 + i*0.035)
+                draw.ellipse([icx-ew/2, cy+yoff*s-s*0.04, icx+ew/2, cy+yoff*s+s*0.04],
                             fill=gold, outline=gold_d, width=3)
-            f = load_latin_font(int(s*0.12))
-            draw.text((cx, cy-s*0.05), "₹", font=f, fill=gold_d, anchor="mm")
-            import math
-            ax1, ay1 = cx-s*0.05, cy-s*0.22
-            ax2, ay2 = cx+s*0.34, cy-s*0.5
-            draw.line([ax1,ay1,ax2,ay2], fill=d, width=8)
-            rad = math.radians(20)
-            dx, dy = math.cos(rad)*22, math.sin(rad)*22
-            draw.polygon([(ax2,ay2),(ax2-dx-12,ay2+dy-6),(ax2-dx+6,ay2+dy+12)], fill=d)
+            f = load_latin_font(int(s*0.09))
+            draw.text((icx, cy-s*0.02), "₹", font=f, fill=gold_d, anchor="mm")
 
     elif kind == "safe":
-        bw, bh = s*0.56, s*0.56
-        draw.rounded_rectangle([cx-bw/2, cy-bh/2, cx+bw/2, cy+bh/2], radius=16, fill=(90,90,100), outline=(50,50,60), width=6)
-        r = s*0.16
-        draw.ellipse([cx-r, cy-r, cx+r, cy+r], fill=(220,220,225), outline=(50,50,60), width=5)
+        variant = random.randint(0, 2)
+        px = cx - s*0.28
+        draw_person(draw, px, cy+s*0.05, s*0.6, "happy_arms", theme, variant)
+        icx = cx + s*0.24
+        bw, bh = s*0.36, s*0.36
+        draw.rounded_rectangle([icx-bw/2, cy-bh/2, icx+bw/2, cy+bh/2], radius=12, fill=(90,90,100), outline=(50,50,60), width=5)
+        r = s*0.10
+        draw.ellipse([icx-r, cy-r, icx+r, cy+r], fill=(220,220,225), outline=(50,50,60), width=4)
         for ang in range(0, 360, 45):
             import math
             rad = math.radians(ang)
-            x2, y2 = cx+math.cos(rad)*r*0.8, cy+math.sin(rad)*r*0.8
-            draw.line([cx, cy, x2, y2], fill=(50,50,60), width=4)
-        draw.rounded_rectangle([cx-bw*0.32, cy+bh*0.28, cx+bw*0.32, cy+bh*0.42], radius=6, fill=p)
+            x2, y2 = icx+math.cos(rad)*r*0.8, cy+math.sin(rad)*r*0.8
+            draw.line([icx, cy, x2, y2], fill=(50,50,60), width=3)
 
     elif kind == "handshake":
-        for off, col in [(-s*0.16, p), (s*0.16, d)]:
-            draw.rounded_rectangle([cx+off-s*0.1, cy-s*0.22, cx+off+s*0.1, cy+s*0.05],
-                                   radius=14, fill=col)
-        draw.ellipse([cx-s*0.14, cy-s*0.02, cx+s*0.14, cy+s*0.22], fill=(235,190,150))
-        draw.rounded_rectangle([cx-s*0.32, cy+s*0.22, cx+s*0.32, cy+s*0.34], radius=10, fill=light)
+        v1, v2 = random.randint(0,2), (random.randint(0,2))
+        draw_person(draw, cx-s*0.22, cy+s*0.04, s*0.58, "hold_out", theme, v1)
+        draw_person(draw, cx+s*0.22, cy+s*0.04, s*0.58, "hold_out", theme, v2)
+        draw.ellipse([cx-s*0.05, cy-s*0.02, cx+s*0.05, cy+s*0.08], fill=(240,200,165))
 
     elif kind == "tax":
-        cw, ch = s*0.62, s*0.62
-        draw.rounded_rectangle([cx-cw/2, cy-ch/2, cx+cw/2, cy+ch/2], radius=18, fill=white, outline=p, width=6)
+        variant = random.randint(0, 2)
+        px = cx - s*0.28
+        draw_person(draw, px, cy+s*0.05, s*0.6, "point_up", theme, variant)
+        icx = cx + s*0.26
+        cw, ch = s*0.36, s*0.36
+        draw.rounded_rectangle([icx-cw/2, cy-ch/2, icx+cw/2, cy+ch/2], radius=12, fill=white, outline=p, width=5)
         for r in range(4):
             for c in range(3):
-                bx = cx-cw/2+18+c*(cw-36)/2
-                by = cy-ch/2+18+r*(ch-36)/3.6
-                draw.rounded_rectangle([bx,by,bx+ (cw-56)/3, by+18], radius=6, fill=light if (r+c)%2 else p)
-        draw.ellipse([cx+s*0.1, cy+s*0.05, cx+s*0.42, cy+s*0.37], fill=d)
-        f = load_latin_font(int(s*0.16))
-        draw.text((cx+s*0.26, cy+s*0.21), "%", font=f, fill=white, anchor="mm")
+                bx = icx-cw/2+10+c*(cw-20)/2
+                by = cy-ch/2+10+r*(ch-20)/3.6
+                draw.rounded_rectangle([bx,by,bx+(cw-32)/3, by+10], radius=4, fill=light if (r+c)%2 else p)
 
     elif kind == "budget":
         r = s*0.32
@@ -658,13 +740,14 @@ def draw_illustration(draw, cx, cy, w, h, kind, theme):
         draw.rectangle([bx-14, by+bh, bx+bw+14, by+bh+16], fill=d)
 
     elif kind == "loan":
-        hw, hh = s*0.5, s*0.36
-        draw.polygon([(cx, cy-s*0.4),(cx-hw/2-14, cy-s*0.1),(cx+hw/2+14, cy-s*0.1)], fill=d)
-        draw.rectangle([cx-hw/2, cy-s*0.1, cx+hw/2, cy-s*0.1+hh], fill=p)
-        draw.rectangle([cx-hw*0.12, cy-s*0.1+hh*0.4, cx+hw*0.12, cy-s*0.1+hh], fill=white)
-        f = load_latin_font(int(s*0.14))
-        draw.ellipse([cx+s*0.16, cy+s*0.02, cx+s*0.42, cy+s*0.28], fill=(230,180,40), outline=white, width=4)
-        draw.text((cx+s*0.29, cy+s*0.15), "₹", font=f, fill=white, anchor="mm")
+        variant = random.randint(0, 2)
+        px = cx - s*0.30
+        draw_person(draw, px, cy+s*0.05, s*0.6, "worried", theme, variant)
+        icx = cx + s*0.24
+        hw, hh = s*0.30, s*0.22
+        draw.polygon([(icx, cy-s*0.28),(icx-hw/2-8, cy-s*0.08),(icx+hw/2+8, cy-s*0.08)], fill=d)
+        draw.rectangle([icx-hw/2, cy-s*0.08, icx+hw/2, cy-s*0.08+hh], fill=p)
+        draw.rectangle([icx-hw*0.12, cy-s*0.08+hh*0.4, icx+hw*0.12, cy-s*0.08+hh], fill=white)
 
     elif kind == "creditscore":
         r = s*0.34
@@ -696,23 +779,23 @@ def draw_illustration(draw, cx, cy, w, h, kind, theme):
         draw.text((cx+dw*0.27, cy+dh*0.27), "✓", font=f, fill=white, anchor="mm")
 
     elif kind == "family":
-        positions = [(-s*0.22, 0.85, p), (0, 1.0, d), (s*0.22, 0.7, p)]
-        for off, scale, col in positions:
-            hx = cx+off
-            rr = s*0.08*scale
-            draw.ellipse([hx-rr, cy-s*0.3*scale, hx+rr, cy-s*0.3*scale+2*rr], fill=col)
-            draw.rounded_rectangle([hx-rr*1.6, cy-s*0.14*scale, hx+rr*1.6, cy+s*0.28*scale],
-                                   radius=14, fill=col)
+        draw_person(draw, cx-s*0.2, cy+s*0.1, s*0.55, "idle", theme, 0)
+        draw_person(draw, cx+s*0.2, cy+s*0.1, s*0.5, "idle", theme, 1)
+        draw_person(draw, cx, cy+s*0.24, s*0.32, "happy_arms", theme, 2)
 
     else:  # "shield" — default for insurance topics
-        sw, sh = s*0.5, s*0.6
+        variant = random.randint(0, 2)
+        px = cx - s*0.26
+        draw_person(draw, px, cy+s*0.06, s*0.6, "happy_arms", theme, variant)
+        sx, sy = cx + s*0.26, cy
+        sw, sh = s*0.32, s*0.38
         draw.polygon([
-            (cx, cy-sh/2), (cx+sw/2, cy-sh/2+sh*0.18),
-            (cx+sw/2, cy+sh*0.08), (cx, cy+sh/2),
-            (cx-sw/2, cy+sh*0.08), (cx-sw/2, cy-sh/2+sh*0.18),
-        ], fill=p, outline=d, width=5)
-        draw.line([cx-sw*0.18, cy-sh*0.02, cx-sw*0.02, cy+sh*0.14], fill=white, width=12)
-        draw.line([cx-sw*0.02, cy+sh*0.14, cx+sw*0.22, cy-sh*0.16], fill=white, width=12)
+            (sx, sy-sh/2), (sx+sw/2, sy-sh/2+sh*0.18),
+            (sx+sw/2, sy+sh*0.08), (sx, sy+sh/2),
+            (sx-sw/2, sy+sh*0.08), (sx-sw/2, sy-sh/2+sh*0.18),
+        ], fill=p, outline=d, width=4)
+        draw.line([sx-sw*0.18, sy-sh*0.02, sx-sw*0.02, sy+sh*0.14], fill=white, width=8)
+        draw.line([sx-sw*0.02, sy+sh*0.14, sx+sw*0.22, sy-sh*0.16], fill=white, width=8)
 
 
 def get_topic_image(topic, seed_suffix=""):
