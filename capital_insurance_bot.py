@@ -63,13 +63,13 @@ FPS            = 30
 CHANNEL_NAME   = "Capital Insurance Investments"
 CHANNEL_HANDLE = "@CapitalInsuranceInvestments"
 
-# Logo path — tries multiple locations
+# Logo path — tries multiple locations and common formats
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__)) if "__file__" in dir() else os.getcwd()
-LOGO_PATHS = [
-    os.path.join(SCRIPT_DIR, "channel_logo.png"),
-    "channel_logo.png",
-    os.path.join(os.getcwd(), "channel_logo.png"),
-]
+LOGO_PATHS = []
+for _dir in (SCRIPT_DIR, ".", os.getcwd()):
+    for _name in ("channel_logo.png", "channel_logo.jpg", "channel_logo.jpeg",
+                  "channel_logo.PNG", "channel_logo.JPG"):
+        LOGO_PATHS.append(os.path.join(_dir, _name))
 
 SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
@@ -851,7 +851,7 @@ def build_frame(theme, screen_num, title, tips,
                   logo_cx+logo_r+3, logo_cy+logo_r+3], fill=white)
 
     logo_placed = False
-    for lp in LOGO_PATHS + ["channel_logo.png"]:
+    for lp in LOGO_PATHS:
         if os.path.exists(lp):
             try:
                 li = Image.open(lp).convert("RGBA")
