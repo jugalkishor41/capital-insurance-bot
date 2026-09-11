@@ -13,6 +13,13 @@ import os, json, random, time, datetime, schedule, pickle, urllib.request, urlli
 from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+
+# Pillow 10+ removed Image.ANTIALIAS (renamed to Image.LANCZOS), but
+# moviepy 1.0.3's internal resizer still references the old name —
+# this patch keeps moviepy's .resize() (used for the Ken Burns zoom
+# effect) working regardless of which Pillow version the runner has.
+if not hasattr(Image, "ANTIALIAS"):
+    Image.ANTIALIAS = Image.LANCZOS
 from gtts import gTTS
 from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
 from googleapiclient.discovery import build
