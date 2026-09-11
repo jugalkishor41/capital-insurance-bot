@@ -1447,7 +1447,7 @@ def generate_finance_script(topic, lang="hi"):
         "    {\"type\": \"icon\"}\n"
         "  ],\n"
         "  \"thumbnail_title\": \"Bold Hindi text MAX 32 chars\",\n"
-        "  \"pinned_comment\": \"Engaging question for viewers in Hindi\"\n"
+        "  \"pinned_comment\": \"A-vs-B poll style question in Hindi, e.g. 'SIP se karoge ya FD se? Comment mein A ya B likho!'\"\n"
         "}\n\n"
         "SEO RULES:\n"
         "1. Title must have: number OR emotion word (चौंकाने वाला/जरूरी/खतरनाक/समझदारी भरा)\n"
@@ -1699,6 +1699,130 @@ def get_youtube_client():
             pickle.dump(creds,f)
     return build("youtube","v3",credentials=creds)
 
+SERIES_FILE = Path("series_counter.json")
+PLAYLIST_CACHE_FILE = Path("playlist_cache.json")
+
+def get_next_series_number(category: str) -> int:
+    """Tracks a running episode count per category (Finance/Insurance)
+    so videos can carry 'Series #N' branding — gives viewers a reason
+    to binge and signals to YouTube's algorithm that this is a
+    consistent, ongoing series (helps discoverability)."""
+    counts = {}
+    if SERIES_FILE.exists():
+        try:
+            with open(SERIES_FILE, encoding="utf-8") as f:
+                counts = json.load(f)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            counts = {}
+    counts[category] = counts.get(category, 0) + 1
+    try:
+        with open(SERIES_FILE, "w", encoding="utf-8") as f:
+            json.dump(counts, f, ensure_ascii=False)
+    except OSError:
+        pass
+    return counts[category]
+
+
+def get_or_create_playlist(yt, title, description):
+    """Finds (or creates) a playlist by title, caching the ID locally so
+    we don't re-search/re-create on every single upload."""
+    cache = {}
+    if PLAYLIST_CACHE_FILE.exists():
+        try:
+            with open(PLAYLIST_CACHE_FILE, encoding="utf-8") as f:
+                cache = json.load(f)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            cache = {}
+    if title in cache:
+        return cache[title]
+
+    try:
+        resp = yt.playlists().list(part="snippet", mine=True, maxResults=50).execute()
+        for item in resp.get("items", []):
+            if item["snippet"]["title"] == title:
+                cache[title] = item["id"]
+                with open(PLAYLIST_CACHE_FILE, "w", encoding="utf-8") as f:
+                    json.dump(cache, f, ensure_ascii=False)
+                return item["id"]
+
+        created = yt.playlists().insert(
+            part="snippet,status",
+            body={
+                "snippet": {"title": title, "description": description},
+                "status": {"privacyStatus": "public"},
+            },
+        ).execute()
+        pid = created["id"]
+        cache[title] = pid
+        with open(PLAYLIST_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False)
+        print(f"  Created playlist: {title}")
+        return pid
+    except Exception as e:
+        print(f"  Playlist setup failed ({e})")
+        return None
+
+
+def add_video_to_playlist(yt, playlist_id, video_id):
+    if not playlist_id:
+        return
+    try:
+        yt.playlistItems().insert(
+            part="snippet",
+            body={"snippet": {
+                "playlistId": playlist_id,
+                "resourceId": {"kind": "youtube#video", "videoId": video_id},
+            }},
+        ).execute()
+        print("  Added to playlist")
+    except Exception as e:
+        print(f"  Add-to-playlist failed ({e})")
+
+
+def report_best_posting_times(max_check=60):
+    """Groups recent uploads by the hour they were posted and reports
+    average views per hour-slot, using real view counts from the
+    YouTube Data API. This is a REPORT, not an auto-scheduler — GitHub
+    Actions cron times are static in the workflow YAML and can't be
+    changed from inside the Python script, so use this output to
+    manually adjust the cron times in the .yml file if one slot is
+    consistently outperforming the others."""
+    if not LOG_FILE.exists():
+        return
+    try:
+        with open(LOG_FILE, encoding="utf-8") as f:
+            log = json.load(f)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return
+    recent = log[-max_check:]
+    ids = [e["video_id"] for e in recent if e.get("video_id")]
+    if not ids:
+        return
+    try:
+        yt = get_youtube_client()
+        stats = {}
+        for i in range(0, len(ids), 50):
+            batch = ids[i:i+50]
+            resp = yt.videos().list(part="statistics", id=",".join(batch)).execute()
+            for item in resp.get("items", []):
+                stats[item["id"]] = int(item["statistics"].get("viewCount", 0))
+        by_hour = {}
+        for e in recent:
+            vid = e.get("video_id")
+            if vid not in stats:
+                continue
+            hour = int(e["date"][11:13])
+            by_hour.setdefault(hour, []).append(stats[vid])
+        if not by_hour:
+            return
+        print("  📊 Views by posting hour (IST, approx):")
+        for hour in sorted(by_hour, key=lambda h: -sum(by_hour[h])/len(by_hour[h])):
+            views = by_hour[hour]
+            print(f"     {hour:02d}:00 → avg {sum(views)/len(views):.0f} views ({len(views)} videos)")
+    except Exception as e:
+        print(f"  Posting-time report unavailable ({e})")
+
+
 def upload_to_youtube(yt, video_path, thumb_path, script_data, topic=''):
     lang  = script_data.get("_lang","hi")
     raw_title = script_data["title"]
@@ -1707,6 +1831,10 @@ def upload_to_youtube(yt, video_path, thumb_path, script_data, topic=''):
         raw_title = raw_title[:60] + " | #Shorts"
     title = raw_title[:100]
     is_insurance = script_data.get("_category") == "Insurance"
+    series_category = "Insurance" if is_insurance else "Finance"
+    series_num = get_next_series_number(series_category)
+    series_label = f"{series_category} Tips" if not is_insurance else "Insurance Guide"
+
     desc  = script_data.get("description","")
     if not desc:
         _, disclaimer_line = get_disclaimer(topic)
@@ -1725,6 +1853,7 @@ def upload_to_youtube(yt, video_path, thumb_path, script_data, topic=''):
                 "#MutualFunds #FinancialFreedom #MoneyManagement #IndiaFinance"
             )
         )
+    desc = f"📺 {series_label} — Episode #{series_num}\n\n" + desc
 
     tags = (
         [
@@ -1778,7 +1907,7 @@ def upload_to_youtube(yt, video_path, thumb_path, script_data, topic=''):
     # Pinned comment
     comment = script_data.get("pinned_comment","")
     if not comment:
-        comment = f"क्या आप भी ये टिप्स अपनाते हैं? नीचे comment करें 👇\n{CHANNEL_NAME} को Follow करना न भूलें! 🔔"
+        comment = f"Ye tips already try kar rahe ho (A) ya aaj se start karoge (B)? Comment mein A ya B likho 👇\n{CHANNEL_NAME} ko Follow karna na bhoolein! 🔔"
     try:
         yt.commentThreads().insert(
             part="snippet",
@@ -1791,6 +1920,14 @@ def upload_to_youtube(yt, video_path, thumb_path, script_data, topic=''):
     except Exception as e:
         print(f"  Comment: {e}")
 
+    # Add to category playlist (Finance / Insurance) — helps discoverability
+    playlist_title = "Insurance Guide 🛡️" if is_insurance else "Finance & Investment Tips 📈"
+    playlist_id = get_or_create_playlist(
+        yt, playlist_title,
+        f"{CHANNEL_NAME} — sabhi {series_category.lower()} Shorts ek jagah."
+    )
+    add_video_to_playlist(yt, playlist_id, video_id)
+
     return video_id
 
 def log_upload(topic, video_id, title, theme_name):
@@ -1802,8 +1939,12 @@ def log_upload(topic, video_id, title, theme_name):
         except (json.JSONDecodeError, UnicodeDecodeError):
             print(f"  ⚠️ {LOG_FILE} corrupt tha, naye se shuru kar rahe hain")
             log = []
+    # GitHub Actions runners default to UTC — convert to IST (+5:30) so
+    # logged timestamps (and the posting-time report) reflect the actual
+    # local time the video went live for Indian viewers.
+    ist_now = datetime.datetime.utcnow() + datetime.timedelta(hours=5, minutes=30)
     log.append({
-        "date": datetime.datetime.now().isoformat(),
+        "date": ist_now.isoformat(),
         "topic": topic, "video_id": video_id,
         "title": title, "theme": theme_name,
         "url": f"https://youtube.com/shorts/{video_id}",
@@ -1852,6 +1993,13 @@ def run_pipeline():
         vid = upload_to_youtube(yt, video_path, thumb_path, data, topic=topic)
 
         log_upload(topic, vid, data["title"], theme["name"])
+
+        # Informational only — cron times are static in the workflow
+        # YAML, this just tells you (in the logs) which slot to favor
+        try:
+            report_best_posting_times()
+        except Exception as e:
+            print(f"  Posting-time report skipped: {e}")
 
         for fp in [audio_path, thumb_path]:
             if os.path.exists(fp):
@@ -1972,7 +2120,7 @@ def generate_long_script(topic, lang="hi"):
         "    // exactly 6 such chapter objects\n"
         "  ],\n"
         '  "thumbnail_title": "Bold Hindi text MAX 35 chars",\n'
-        '  "pinned_comment": "Engaging Hindi question for viewers"\n'
+        '  "pinned_comment": "A-vs-B poll style Hindi question, e.g. \'Dividend stocks ya Growth stocks? Comment mein A ya B likho!\'"\n'
         "}\n\n"
         "RULES:\n"
         "1. Chapter 1 = Hook + Problem statement, Chapters 2-5 = deep explanation with examples/numbers/comparisons, "
@@ -2279,6 +2427,14 @@ def upload_long_to_youtube(yt, video_path, thumb_path, script_data, topic=''):
         print("  Comment posted")
     except Exception as e:
         print(f"  Comment: {e}")
+
+    # Add to category playlist (Finance / Insurance) — helps discoverability
+    playlist_title = "Insurance Guide 🛡️" if is_insurance else "Finance & Investment Tips 📈"
+    playlist_id = get_or_create_playlist(
+        yt, playlist_title,
+        f"{CHANNEL_NAME} — sabhi related videos ek jagah."
+    )
+    add_video_to_playlist(yt, playlist_id, video_id)
 
     return video_id
 
