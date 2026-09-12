@@ -21,7 +21,7 @@ from PIL import Image, ImageDraw, ImageFont
 if not hasattr(Image, "ANTIALIAS"):
     Image.ANTIALIAS = Image.LANCZOS
 from gtts import gTTS
-from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
+from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips, VideoFileClip
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -1598,9 +1598,9 @@ def generate_finance_script(topic, lang="hi"):
         "Create a VIRAL finance/insurance video script. Return ONLY valid JSON:\n"
         "{\n"
         "  \"title\": \"VIRAL Hindi title 55-65 chars — use numbers, emotions, curiosity — must end with #Shorts\",\n"
-        "  \"description\": \"SEO description 400-500 chars. Line1: hook. Line2-3: what viewers learn. Line4: CTA. Then 20 hashtags mix Hindi+English\",\n"
+        "  \"description\": \"SEO description 400-500 chars. Line1: hook. Line2-3: what viewers learn. Line4: CTA to follow + watch our latest long-form deep-dive video for the full explanation. Then 20 hashtags mix Hindi+English\",\n"
         "  \"hook\": \"Shocking opening line MAX 38 chars\",\n"
-        f"  \"script\": \"Natural Hindi speech 280-300 words for 2 minute video. Start dramatic. Explain each point in detail with real examples. End with {CHANNEL_NAME} follow karo\",\n"
+        f"  \"script\": \"Natural Hindi speech 280-300 words for 2 minute video. Start dramatic. Explain points 1-2 in detail with real examples. Before revealing point 3, add ONE curiosity-gap line like 'लेकिन सबसे जरूरी बात अभी बाकी है' or 'रुको, ये तीसरा पॉइंट सबसे ज्यादा पैसे बचाएगा' to keep viewers watching. Explain point 3. End with: {CHANNEL_NAME} follow karo, aur poora explanation ke liye hamari latest long video dekho\",\n"
         "  \"key_points\": [\n"
         "    \"Short powerful Hindi point 1 MAX 38 chars\",\n"
         "    \"Short powerful Hindi point 2 MAX 38 chars\",\n"
@@ -1619,6 +1619,7 @@ def generate_finance_script(topic, lang="hi"):
         "2. key_points: exactly 3, MAX 38 chars, action-oriented\n"
         f"3. Description hashtags: {hashtag_set}\n"
         "4. script: 280-300 words, conversational Hindi, factually careful (no guaranteed-return claims for finance, no false claim-approval promises for insurance)\n"
+        "4b. MANDATORY retention hook: the curiosity-gap line before point 3 is not optional — it's what keeps Shorts viewers from swiping away\n"
         f"5. At the very end of the script, naturally mention: \"{disclaimer_line}\"\n"
         "6. VISUALS ARRAY — exactly 3 objects, one per key_point, in order. Each object's \"type\" is one of:\n"
         "   - \"icon\" — default, a themed icon illustration for the point (use this most of the time)\n"
@@ -1988,6 +1989,51 @@ def report_best_posting_times(max_check=60):
         print(f"  Posting-time report unavailable ({e})")
 
 
+def get_latest_long_video_url():
+    """Finds the most recent long-form upload's URL, for cross-promoting
+    it in Shorts descriptions ('watch the full explanation'). Returns
+    None if no long-form video has been uploaded yet — the caller then
+    just skips that line rather than linking to nothing."""
+    if not LOG_FILE.exists():
+        return None
+    try:
+        with open(LOG_FILE, encoding="utf-8") as f:
+            log = json.load(f)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    long_entries = [e for e in log if str(e.get("theme","")).endswith("-long") and e.get("url")]
+    if not long_entries:
+        return None
+    return long_entries[-1]["url"]
+
+
+STOPWORDS_HI_EN = set("""
+के का की को है हैं में से पर और या एक ये यह वह अगर तो भी सकते सकता हो होगा
+कैसे क्या कब कहाँ कौन जरूरी अच्छा बड़ा नया साल महीने दिन बार
+the a an is are of to in for and or if you your how what when why do does
+""".split())
+
+def extract_dynamic_tags(topic, key_points, max_tags=8):
+    """Pulls real, meaningful keywords out of THIS specific video's topic
+    and key points (stripping common stopwords/numbers) so every upload
+    gets some tags tailored to what it's actually about, on top of the
+    fixed category tags — better long-tail discoverability than a
+    static 10-tag list repeated on every single video."""
+    import re
+    text = topic + " " + " ".join(key_points)
+    words = re.findall(r"[A-Za-z\u0900-\u097F]+", text)
+    seen, tags = set(), []
+    for w in words:
+        wl = w.lower()
+        if len(w) < 3 or wl in STOPWORDS_HI_EN or wl in seen:
+            continue
+        seen.add(wl)
+        tags.append(w)
+        if len(tags) >= max_tags:
+            break
+    return tags
+
+
 def upload_to_youtube(yt, video_path, thumb_path, script_data, topic=''):
     lang  = script_data.get("_lang","hi")
     raw_title = script_data["title"]
@@ -2018,9 +2064,12 @@ def upload_to_youtube(yt, video_path, thumb_path, script_data, topic=''):
                 "#MutualFunds #FinancialFreedom #MoneyManagement #IndiaFinance"
             )
         )
+    long_url = get_latest_long_video_url()
+    if long_url and long_url not in desc:
+        desc = f"🎥 Poora deep-dive explanation: {long_url}\n\n" + desc
     desc = f"📺 {series_label} — Episode #{series_num}\n\n" + desc
 
-    tags = (
+    base_tags = (
         [
             "insurance tips hindi", "capital insurance investments", "term insurance",
             "health insurance", "insurance claim", "irdai", "insurance policy",
@@ -2032,6 +2081,10 @@ def upload_to_youtube(yt, video_path, thumb_path, script_data, topic=''):
             "money management", "finance shorts", "निवेश",
         ]
     )
+    # Dynamic tags — pull real keywords out of THIS video's actual topic
+    # and key points, so tags aren't the same fixed 10 on every upload
+    dynamic_tags = extract_dynamic_tags(topic, script_data.get("key_points", []))
+    tags = (base_tags + dynamic_tags)[:20]  # YouTube tags have a combined length limit
 
     body = {
         "snippet": {
@@ -2108,11 +2161,13 @@ def log_upload(topic, video_id, title, theme_name):
     # logged timestamps (and the posting-time report) reflect the actual
     # local time the video went live for Indian viewers.
     ist_now = datetime.datetime.utcnow() + datetime.timedelta(hours=5, minutes=30)
+    is_long = str(theme_name).endswith("-long")
     log.append({
         "date": ist_now.isoformat(),
         "topic": topic, "video_id": video_id,
         "title": title, "theme": theme_name,
-        "url": f"https://youtube.com/shorts/{video_id}",
+        "url": (f"https://youtube.com/watch?v={video_id}" if is_long
+                else f"https://youtube.com/shorts/{video_id}"),
     })
     with open(LOG_FILE, "w", encoding="utf-8") as f:
         json.dump(log, f, indent=2, ensure_ascii=False)
@@ -2120,6 +2175,41 @@ def log_upload(topic, video_id, title, theme_name):
 # ══════════════════════════════════════════════════════════
 #  MAIN PIPELINE
 # ══════════════════════════════════════════════════════════
+def run_qa_checks(video_path, min_duration=10, max_duration=190):
+    """Sanity checks before uploading — catches an obviously broken
+    render (corrupt/tiny file, near-silent audio, missing audio track,
+    wildly wrong duration) before it goes live on the channel. Returns
+    (ok: bool, reason: str) rather than raising, so a failed check can
+    be logged clearly and skip the upload instead of crashing the run."""
+    if not os.path.exists(video_path):
+        return False, "video file was not created"
+    if os.path.getsize(video_path) < 50_000:
+        return False, f"video file suspiciously small ({os.path.getsize(video_path)} bytes) — likely a broken render"
+
+    issues = []
+    try:
+        clip = VideoFileClip(video_path)
+        dur = clip.duration
+        if dur < min_duration or dur > max_duration:
+            issues.append(f"duration {dur:.1f}s is outside the expected {min_duration}-{max_duration}s range")
+        if clip.audio is None:
+            issues.append("video has no audio track at all")
+        else:
+            try:
+                peak = clip.audio.max_volume()
+                if peak < 0.01:
+                    issues.append(f"audio appears silent/near-silent (peak volume {peak:.4f})")
+            except Exception as e:
+                issues.append(f"could not verify audio volume ({e})")
+        clip.close()
+    except Exception as e:
+        return False, f"could not open the rendered video to inspect it ({e})"
+
+    if issues:
+        return False, "; ".join(issues)
+    return True, "OK"
+
+
 def run_pipeline():
     OUTPUT_DIR.mkdir(exist_ok=True)
     ts    = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -2152,6 +2242,15 @@ def run_pipeline():
 
         print("\n4/5: Thumbnail...")
         generate_thumbnail(data, theme, thumb_path, topic_image=topic_image)
+
+        print("\n4.5/5: QA check before upload...")
+        qa_ok, qa_reason = run_qa_checks(video_path)
+        if not qa_ok:
+            print(f"  ❌ QA CHECK FAILED: {qa_reason}")
+            print("  Skipping upload — a broken video will NOT go live. "
+                  "Check the files in output_videos/ to debug, then re-run.")
+            return
+        print("  ✅ QA check passed")
 
         print("\n5/5: Uploading to YouTube...")
         yt = get_youtube_client()
@@ -2570,13 +2669,16 @@ def upload_long_to_youtube(yt, video_path, thumb_path, script_data, topic=''):
             f"Follow करें: {CHANNEL_HANDLE}\n\n{disclaimer_line}"
         )
 
-    tags = (
+    base_tags = (
         ["insurance guide hindi", "capital insurance investments", "term insurance explained",
          "irdai", "insurance deep dive", "insurance India"]
         if is_insurance else
         ["finance guide hindi", "capital insurance investments", "sip explained",
          "personal finance india", "investment deep dive", "finance India"]
     )
+    chapter_headings = [c.get("heading","") for c in script_data.get("chapters", [])]
+    dynamic_tags = extract_dynamic_tags(topic, chapter_headings)
+    tags = (base_tags + dynamic_tags)[:20]
 
     body = {
         "snippet": {
@@ -2671,6 +2773,14 @@ def run_long_pipeline():
 
         print("\n3/4: Thumbnail...")
         generate_long_thumbnail(data, theme, thumb_path, topic_image=topic_image, topic=topic)
+
+        print("\n3.5/4: QA check before upload...")
+        qa_ok, qa_reason = run_qa_checks(video_path, min_duration=240, max_duration=1400)
+        if not qa_ok:
+            print(f"  ❌ QA CHECK FAILED: {qa_reason}")
+            print("  Skipping upload — a broken video will NOT go live. "
+                  "Check the files in output_videos/ to debug, then re-run.")
+            return None
 
         print("\n4/4: Uploading to YouTube...")
         vid = upload_long_to_youtube(yt, video_path, thumb_path, data, topic=topic)
