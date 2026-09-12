@@ -798,6 +798,45 @@ def draw_illustration(draw, cx, cy, w, h, kind, theme):
         draw.line([sx-sw*0.02, sy+sh*0.14, sx+sw*0.22, sy-sh*0.16], fill=white, width=8)
 
 
+def get_ai_character_image(pose_desc, size=700, seed=42):
+    """Generates a 2D character illustration for the THUMBNAIL only via
+    Pollinations.ai (genuinely free, no API key/signup needed). Returns
+    None on any failure (slow response, network issue, rate limit) —
+    the caller then falls back to the reliable hand-drawn draw_person(),
+    so a flaky free service can never break video generation."""
+    import hashlib
+    cache_dir = Path("character_images")
+    cache_dir.mkdir(exist_ok=True)
+    safe = hashlib.md5((pose_desc + str(seed)).encode()).hexdigest()[:10]
+    img_path = cache_dir / f"char_{safe}.png"
+    if img_path.exists():
+        return str(img_path)
+
+    base_desc = (
+        "flat vector illustration, 2D cartoon character, confident young "
+        "Indian financial advisor, short black hair, light stubble, "
+        "wearing white shirt and navy blue blazer, simple flat colors, "
+        "plain white background, no text, no watermark, clean vector art, "
+        "professional finance explainer style"
+    )
+    prompt = f"{base_desc}, {pose_desc}"
+    url = (f"https://image.pollinations.ai/prompt/{urllib.parse.quote(prompt)}"
+           f"?width={size}&height={size}&seed={seed}&nologo=true")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=25) as r:
+            data = r.read()
+        if len(data) < 2000:  # suspiciously small = likely an error page, not an image
+            raise RuntimeError("response too small, likely not a real image")
+        with open(img_path, "wb") as f:
+            f.write(data)
+        print(f"  AI thumbnail character generated ({pose_desc[:35]}...)")
+        return str(img_path)
+    except Exception as e:
+        print(f"  AI character generation failed ({e}), using hand-drawn fallback")
+        return None
+
+
 def get_topic_image(topic, seed_suffix=""):
     """Fetch a topic-relevant image. Tries Pexels (free API, real
     keyword-matched photos) first, falls back to Picsum (seeded random
@@ -1257,28 +1296,64 @@ def generate_thumbnail(script_data, theme, output_path, topic_image=None):
     # Left accent
     draw.rectangle([0, 0, 16, TH], fill=p)
 
+    # ── Character panel (right side) — AI image if available, else
+    # our reliable hand-drawn character as fallback ──
+    char_x1 = TW - 360
+    is_insurance = script_data.get("_category") == "Insurance"
+    pose_desc = (
+        "holding a green insurance shield, confident smile, thumbs up"
+        if is_insurance else
+        "holding cash and pointing at a rising bar chart, excited expression"
+    )
+    ai_char_path = get_ai_character_image(pose_desc, seed=(1 if is_insurance else 2))
+    if ai_char_path and os.path.exists(ai_char_path):
+        try:
+            ci = Image.open(ai_char_path).convert("RGB")
+            cw, ch = TW-char_x1, TH-110
+            cr = ci.width / ci.height
+            br = cw / ch
+            if cr > br:
+                nh, nw = ch, int(ch*cr)
+            else:
+                nw, nh = cw, int(cw/cr)
+            ci = ci.resize((nw, nh), Image.LANCZOS)
+            left = (nw-cw)//2
+            top  = max(0, (nh-ch)//3)
+            ci = ci.crop((left, top, left+cw, top+ch))
+            img.paste(ci, (char_x1, 110))
+            draw = ImageDraw.Draw(img)
+        except Exception as e:
+            print(f"  Thumbnail AI char paste failed ({e}), using hand-drawn")
+            ai_char_path = None
+    if not ai_char_path:
+        draw.rounded_rectangle([char_x1, 110, TW-28, TH-20], radius=20, fill=(250,250,250), outline=p, width=4)
+        pose = "happy_arms" if is_insurance else "point_up"
+        draw_person(draw, char_x1+165, 400, 340, pose, theme, 0)
+
+    text_right_edge = char_x1 - 20
+
     # Title
     title = script_data.get("thumbnail_title",
             script_data.get("hook", "Finance Tips"))[:42]
-    draw.rounded_rectangle([28, 115, TW-28, 300],
+    draw.rounded_rectangle([28, 115, text_right_edge, 300],
                            radius=20, fill=white, outline=p, width=4)
-    tlines = wrap_mixed(title, 68, TW-110, draw)
-    ty = 208 - len(tlines)*36
+    tlines = wrap_mixed(title, 58, text_right_edge-110, draw)
+    ty = 208 - len(tlines)*32
     for line in tlines:
-        draw_mixed_text(draw, (TW//2, ty), line, 68, p, anchor="mm")
-        ty += 74
+        draw_mixed_text(draw, ((28+text_right_edge)//2, ty), line, 58, p, anchor="mm")
+        ty += 66
 
     # Tips
     tips = script_data.get("key_points", [])[:3]
     tip_y = 315
     for i, tip in enumerate(tips):
-        draw.rounded_rectangle([28, tip_y, TW-28, tip_y+90],
+        draw.rounded_rectangle([28, tip_y, text_right_edge, tip_y+90],
                                radius=18, fill=white, outline=p, width=2)
         draw.rounded_rectangle([28, tip_y, 82, tip_y+90],
                                radius=18, fill=p)
         draw.text((55, tip_y+45), str(i+1),
                  font=load_latin_font(44), fill=white, anchor="mm")
-        draw_mixed_text(draw, (100, tip_y+45), tip[:50], 44, black, anchor="lm")
+        draw_mixed_text(draw, (100, tip_y+45), tip[:42], 38, black, anchor="lm")
         tip_y += 105
 
     img.save(output_path, "JPEG", quality=95)
@@ -2410,7 +2485,7 @@ def create_long_video(script_data, theme, output_path, topic=None):
 # ══════════════════════════════════════════════════════════
 #  LONG-FORM THUMBNAIL (16:9)
 # ══════════════════════════════════════════════════════════
-def generate_long_thumbnail(script_data, theme, output_path, topic_image=None):
+def generate_long_thumbnail(script_data, theme, output_path, topic_image=None, topic=None):
     TW, TH = 1280, 720
     p = theme["primary"]
     white = (255, 255, 255)
@@ -2429,14 +2504,50 @@ def generate_long_thumbnail(script_data, theme, output_path, topic_image=None):
     draw.rectangle([0, 0, TW, 90], fill=p)
     draw.text((TW//2, 45), CHANNEL_HANDLE, font=load_latin_font(38), fill=white, anchor="mm")
 
+    # ── Character panel (right side) — AI image if available, else
+    # our reliable hand-drawn character as fallback ──
+    char_x1 = TW - 380
+    _, disclaimer_line = get_disclaimer(topic or "")
+    is_insurance = disclaimer_line == IRDAI_DISCLAIMER
+    pose_desc = (
+        "holding a green insurance shield, confident smile, thumbs up"
+        if is_insurance else
+        "holding cash and pointing at a rising bar chart, excited expression"
+    )
+    ai_char_path = get_ai_character_image(pose_desc, seed=(1 if is_insurance else 2))
+    if ai_char_path and os.path.exists(ai_char_path):
+        try:
+            ci = Image.open(ai_char_path).convert("RGB")
+            cw, ch = TW-char_x1-40, TH-130
+            cr = ci.width / ci.height
+            br = cw / ch
+            if cr > br:
+                nh, nw = ch, int(ch*cr)
+            else:
+                nw, nh = cw, int(cw/cr)
+            ci = ci.resize((nw, nh), Image.LANCZOS)
+            left = (nw-cw)//2
+            top  = max(0, (nh-ch)//3)
+            ci = ci.crop((left, top, left+cw, top+ch))
+            img.paste(ci, (char_x1+20, 110))
+            draw = ImageDraw.Draw(img)
+        except Exception as e:
+            print(f"  Long thumbnail AI char paste failed ({e}), using hand-drawn")
+            ai_char_path = None
+    if not ai_char_path:
+        draw.rounded_rectangle([char_x1, 110, TW-40, TH-40], radius=24, fill=(250,250,250), outline=p, width=4)
+        pose = "happy_arms" if is_insurance else "point_up"
+        draw_person(draw, char_x1+170, 400, 320, pose, theme, 0)
+
+    text_right_edge = char_x1 - 20
     title = script_data.get("thumbnail_title",
             script_data.get("hook", "Finance Guide"))[:35]
-    draw.rounded_rectangle([40, 110, TW-40, TH-40], radius=24, fill=white, outline=p, width=5)
-    lines = wrap_mixed(title, 64, TW-160, draw)
-    ty = (TH+70 - len(lines)*70)//2
+    draw.rounded_rectangle([40, 110, text_right_edge, TH-40], radius=24, fill=white, outline=p, width=5)
+    lines = wrap_mixed(title, 56, text_right_edge-160, draw)
+    ty = (TH+70 - len(lines)*62)//2
     for line in lines:
-        draw_mixed_text(draw, (TW//2, ty), line, 64, p, anchor="mm")
-        ty += 76
+        draw_mixed_text(draw, ((40+text_right_edge)//2, ty), line, 56, p, anchor="mm")
+        ty += 68
 
     img.save(output_path, "JPEG", quality=95)
 
@@ -2559,7 +2670,7 @@ def run_long_pipeline():
         print(f"  Total video length: {total_dur/60:.1f} minutes")
 
         print("\n3/4: Thumbnail...")
-        generate_long_thumbnail(data, theme, thumb_path, topic_image=topic_image)
+        generate_long_thumbnail(data, theme, thumb_path, topic_image=topic_image, topic=topic)
 
         print("\n4/4: Uploading to YouTube...")
         vid = upload_long_to_youtube(yt, video_path, thumb_path, data, topic=topic)
