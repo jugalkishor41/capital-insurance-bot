@@ -798,6 +798,83 @@ def draw_illustration(draw, cx, cy, w, h, kind, theme):
         draw.line([sx-sw*0.02, sy+sh*0.14, sx+sw*0.22, sy-sh*0.16], fill=white, width=8)
 
 
+def paste_ai_character(img, char_path, y1, y2, frame_w):
+    """Composites the AI-generated presenter character into a frame,
+    removing its near-white background (simple brightness threshold —
+    good enough for flat vector art on a plain white background) and
+    standing it in the bottom-right of the given [y1, y2] card zone."""
+    try:
+        ci = Image.open(char_path).convert("RGBA")
+        arr = np.array(ci)
+        rgb = arr[:, :, :3].astype(int)
+        brightness = rgb.sum(axis=2)
+        # Near-white pixels (the generated plain background) -> transparent
+        mask = brightness > 720
+        arr[:, :, 3] = np.where(mask, 0, 255)
+        ci = Image.fromarray(arr, "RGBA")
+
+        card_h = y2 - y1
+        target_h = int(card_h * 0.68)
+        ratio = ci.width / ci.height
+        target_w = int(target_h * ratio)
+        ci = ci.resize((target_w, target_h), Image.LANCZOS)
+
+        px = frame_w - target_w - 40
+        py = y2 - target_h - 10
+        img.paste(ci, (px, py), ci)
+    except Exception as e:
+        print(f"  AI character paste skipped: {e}")
+
+
+def generate_thumbnail_scene(topic, hook, is_insurance):
+    """Asks Groq to invent a specific, creative visual SCENARIO for the
+    thumbnail character — matching the style of top finance channels
+    (character sleeping while money grows beside the bed, climbing
+    stairs of coins, buried under falling charts, etc.) instead of
+    reusing one generic pose for every video. Falls back to a solid
+    generic pose on any failure, so a flaky call never blocks the
+    thumbnail from being made."""
+    fallback = (
+        "holding a green insurance shield, confident smile, thumbs up"
+        if is_insurance else
+        "holding cash and pointing at a rising bar chart, excited expression"
+    )
+    try:
+        groq_client = Groq(api_key=GEMINI_API_KEY)
+        prompt = (
+            "You design viral YouTube thumbnail SCENES for a finance/insurance "
+            "channel, in the style of top creators (e.g. a character sleeping "
+            "peacefully while a money plant grows beside the bed, a character "
+            "climbing a staircase made of coins, a character comically buried "
+            "under a falling stock chart, a character sitting calmly on a huge "
+            "pile of cash while chaos happens around them).\n\n"
+            f"Video topic: {topic}\n"
+            f"Video hook: {hook}\n"
+            f"Category: {'Insurance' if is_insurance else 'Finance/Investment'}\n\n"
+            "Invent ONE specific, visually punchy scene (not a generic pose) "
+            "for a single cartoon character that captures this exact topic's "
+            "core emotion or idea. Describe only the character's pose, "
+            "expression, and any props/props-interaction — 1 sentence, under "
+            "25 words, in English, for an image generation prompt. "
+            "No text/words in the scene. Return ONLY that one sentence, "
+            "nothing else."
+        )
+        completion = groq_client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.9,
+            max_completion_tokens=200,
+            reasoning_effort="low",
+        )
+        scene = completion.choices[0].message.content.strip().strip('"')
+        if scene and 8 < len(scene) < 220:
+            print(f"  Thumbnail scene: {scene}")
+            return scene
+    except Exception as e:
+        print(f"  Thumbnail scene generation failed ({e}), using generic pose")
+    return fallback
+
+
 def get_ai_character_image(pose_desc, size=700, seed=42):
     """Generates a 2D character illustration for the THUMBNAIL only via
     Pollinations.ai (genuinely free, no API key/signup needed). Returns
@@ -924,7 +1001,7 @@ def get_topic_image(topic, seed_suffix=""):
 def build_frame(theme, screen_num, title, tips,
                 highlight_idx=-1, total=5, topic_image=None, topic=None,
                 point_image=None, point_text=None, layout="stacked",
-                visual_spec=None):
+                visual_spec=None, ai_character_path=None):
     p     = theme["primary"]
     d     = theme["dark"]
     bg    = theme["bg"]
@@ -1101,6 +1178,11 @@ def build_frame(theme, screen_num, title, tips,
                                    radius=26, outline=p, width=6)
             draw_mascot(draw, W-110, img_y1+95, 100, mpose, theme)
 
+        # ── AI presenter character (same image reused all video long) ──
+        if ai_character_path and os.path.exists(ai_character_path):
+            paste_ai_character(img, ai_character_path, img_y1, img_y2, W)
+            draw = ImageDraw.Draw(img)
+
         # ── Footer caption (the point text lives HERE, not up top) ──
         draw.rounded_rectangle([28, footer_y+6, W-28, footer_y+footer_h+6],
                                radius=24, fill=(130,130,130))
@@ -1152,12 +1234,17 @@ def build_frame(theme, screen_num, title, tips,
 
         # Teaser dots — hints 3 points are coming, in the image card
         for i in range(3):
-            cx = icx - 90 + i*90
+            cx = 140 + i*80
             cy = img_y2 - 55
             draw.ellipse([cx-28, cy-28, cx+28, cy+28],
                         fill=white, outline=p, width=4)
             draw.text((cx, cy), str(i+1), font=load_latin_font(34),
                      fill=p, anchor="mm")
+
+        # ── AI presenter character (same image reused all video long) ──
+        if ai_character_path and os.path.exists(ai_character_path):
+            paste_ai_character(img, ai_character_path, img_y1, img_y2, W)
+            draw = ImageDraw.Draw(img)
 
         # ── Footer caption — the hook/title lives HERE ──
         draw.rounded_rectangle([28, footer_y+6, W-28, footer_y+footer_h+6],
@@ -1270,7 +1357,7 @@ def build_frame(theme, screen_num, title, tips,
 # ══════════════════════════════════════════════════════════
 #  THUMBNAIL
 # ══════════════════════════════════════════════════════════
-def generate_thumbnail(script_data, theme, output_path, topic_image=None):
+def generate_thumbnail(script_data, theme, output_path, topic_image=None, topic=None):
     TW, TH = 1280, 720
     p, d, bg = theme["primary"], theme["dark"], theme["bg"]
     white, black = (255,255,255), (20,20,20)
@@ -1300,12 +1387,10 @@ def generate_thumbnail(script_data, theme, output_path, topic_image=None):
     # our reliable hand-drawn character as fallback ──
     char_x1 = TW - 360
     is_insurance = script_data.get("_category") == "Insurance"
-    pose_desc = (
-        "holding a green insurance shield, confident smile, thumbs up"
-        if is_insurance else
-        "holding cash and pointing at a rising bar chart, excited expression"
+    pose_desc = generate_thumbnail_scene(
+        topic or script_data.get("title", ""), script_data.get("hook", ""), is_insurance
     )
-    ai_char_path = get_ai_character_image(pose_desc, seed=(1 if is_insurance else 2))
+    ai_char_path = get_ai_character_image(pose_desc, seed=random.randint(1000, 9999))
     if ai_char_path and os.path.exists(ai_char_path):
         try:
             ci = Image.open(ai_char_path).convert("RGB")
@@ -1462,6 +1547,21 @@ def create_short_video(script_data, audio_path, audio_duration,
     video_layout = "stacked" if has_rich_visual else random.choice(["stacked", "split", "badge"])
     print(f"  Layout template: {video_layout}")
 
+    # AI presenter character — generated ONCE per video (not per screen)
+    # so it (a) stays visually consistent across the whole video and
+    # (b) only costs one network call, keeping the pipeline reliable.
+    # Falls back to nothing (existing hand-drawn scene characters still
+    # appear inside the icon illustrations) if the free API is slow/down.
+    is_insurance_topic = get_disclaimer(topic or "")[1] == IRDAI_DISCLAIMER
+    presenter_pose = (
+        "confident pose, arms crossed, holding a green insurance shield, warm smile"
+        if is_insurance_topic else
+        "excited pose, one arm raised pointing up, holding cash, big smile, dynamic energy"
+    )
+    ai_presenter_path = get_ai_character_image(
+        presenter_pose, seed=random.randint(1000, 9999)
+    )
+
     # Timing — 2 minute video
     intro = audio_duration * 0.12
     t1    = audio_duration * 0.27
@@ -1473,12 +1573,12 @@ def create_short_video(script_data, audio_path, audio_duration,
 
     # Build frames — one point revealed at a time, each with its own image
     f_intro = build_frame(theme, 0, title, tips, total=5,
-                          topic_image=topic_image, topic=topic)
-    f_t1 = build_frame(theme, 1, title, tips, total=5, topic=topic, point_text=tips[0], layout=video_layout, visual_spec=visuals[0])
-    f_t2 = build_frame(theme, 2, title, tips, total=5, topic=topic, point_text=tips[1], layout=video_layout, visual_spec=visuals[1])
-    f_t3 = build_frame(theme, 3, title, tips, total=5, topic=topic, point_text=tips[2], layout=video_layout, visual_spec=visuals[2])
+                          topic_image=topic_image, topic=topic, ai_character_path=ai_presenter_path)
+    f_t1 = build_frame(theme, 1, title, tips, total=5, topic=topic, point_text=tips[0], layout=video_layout, visual_spec=visuals[0], ai_character_path=ai_presenter_path)
+    f_t2 = build_frame(theme, 2, title, tips, total=5, topic=topic, point_text=tips[1], layout=video_layout, visual_spec=visuals[1], ai_character_path=ai_presenter_path)
+    f_t3 = build_frame(theme, 3, title, tips, total=5, topic=topic, point_text=tips[2], layout=video_layout, visual_spec=visuals[2], ai_character_path=ai_presenter_path)
     f_outro = build_frame(theme, 4, f"Yaad Rakho! {CHANNEL_NAME}", tips, total=5,
-                          topic_image=topic_image, topic=topic)
+                          topic_image=topic_image, topic=topic, ai_character_path=ai_presenter_path)
 
     # Ken Burns — a subtle, slow zoom-in on each static frame so nothing
     # feels like a dead still image. Each clip zooms independently over
@@ -2241,7 +2341,7 @@ def run_pipeline():
         )
 
         print("\n4/5: Thumbnail...")
-        generate_thumbnail(data, theme, thumb_path, topic_image=topic_image)
+        generate_thumbnail(data, theme, thumb_path, topic_image=topic_image, topic=topic)
 
         print("\n4.5/5: QA check before upload...")
         qa_ok, qa_reason = run_qa_checks(video_path)
@@ -2608,12 +2708,10 @@ def generate_long_thumbnail(script_data, theme, output_path, topic_image=None, t
     char_x1 = TW - 380
     _, disclaimer_line = get_disclaimer(topic or "")
     is_insurance = disclaimer_line == IRDAI_DISCLAIMER
-    pose_desc = (
-        "holding a green insurance shield, confident smile, thumbs up"
-        if is_insurance else
-        "holding cash and pointing at a rising bar chart, excited expression"
+    pose_desc = generate_thumbnail_scene(
+        topic or script_data.get("title", ""), script_data.get("hook", ""), is_insurance
     )
-    ai_char_path = get_ai_character_image(pose_desc, seed=(1 if is_insurance else 2))
+    ai_char_path = get_ai_character_image(pose_desc, seed=random.randint(1000, 9999))
     if ai_char_path and os.path.exists(ai_char_path):
         try:
             ci = Image.open(ai_char_path).convert("RGB")
