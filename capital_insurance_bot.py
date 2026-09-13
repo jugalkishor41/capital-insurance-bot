@@ -21,7 +21,7 @@ from PIL import Image, ImageDraw, ImageFont
 if not hasattr(Image, "ANTIALIAS"):
     Image.ANTIALIAS = Image.LANCZOS
 from gtts import gTTS
-from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips, VideoFileClip
+from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips, VideoFileClip, CompositeVideoClip
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -588,6 +588,24 @@ def draw_mascot(draw, cx, cy, size, pose, theme):
     else:  # idle / happy
         draw.line([cx-r*0.65, cy+r*0.1, cx-r*0.95, cy+r*0.5], fill=gold_d, width=arm_w)
         draw.line([cx+r*0.65, cy+r*0.1, cx+r*0.95, cy+r*0.5], fill=gold_d, width=arm_w)
+
+
+def draw_waveform(draw, cx, cy, w, h, color=(255,255,255), seed=None, n_bars=28):
+    """Decorative audio-waveform bar — the visual signature of the
+    'realcam' style. Bar heights are seeded per screen so the pattern
+    changes across cuts even though each frame itself is static."""
+    rnd = random.Random(seed)
+    bar_w = w / (n_bars * 1.6)
+    gap = bar_w * 0.6
+    x = cx - w/2
+    for i in range(n_bars):
+        # A little central bias so it reads as a "waveform" rather than
+        # pure noise — taller near the middle, shorter at the edges.
+        center_bias = 1 - abs(i - n_bars/2) / (n_bars/2) * 0.55
+        bh = h * center_bias * rnd.uniform(0.18, 1.0)
+        bx = x + i*(bar_w+gap)
+        draw.rounded_rectangle([bx, cy-bh/2, bx+bar_w, cy+bh/2],
+                               radius=bar_w*0.4, fill=color)
 
 
 def draw_illustration(draw, cx, cy, w, h, kind, theme):
@@ -1164,6 +1182,47 @@ def build_frame(theme, screen_num, title, tips,
             draw_point_visual(draw, bcx, bcy, brad*1.15, brad*1.15, visual_spec, point_text, theme)
             draw_mascot(draw, W-115, img_y1+95, 100, mpose, theme)
 
+        elif layout == "realcam":
+            # Real-photo documentary style — named "realcam" for tracking.
+            # Full-bleed real photo (Pexels) behind, no cartoon overlays,
+            # so it reads as authentic/real rather than illustrated.
+            draw.rounded_rectangle([26, img_y1+6, W-26, img_y2+6],
+                                   radius=18, fill=(140,140,140))
+            real_photo = get_topic_image(point_text, seed_suffix="realcam")
+            if real_photo and os.path.exists(real_photo):
+                try:
+                    pi = Image.open(real_photo).convert("RGB")
+                    target_w, target_h = W-52, img_y2-img_y1
+                    pr, br = pi.width/pi.height, target_w/target_h
+                    if pr > br:
+                        nh, nw = target_h, int(target_h*pr)
+                    else:
+                        nw, nh = target_w, int(target_w/pr)
+                    pi = pi.resize((nw, nh), Image.LANCZOS)
+                    left, top = (nw-target_w)//2, (nh-target_h)//3
+                    pi = pi.crop((left, top, left+target_w, top+target_h))
+                    img.paste(pi, (26, img_y1))
+                    draw = ImageDraw.Draw(img)
+                except Exception as e:
+                    print(f"  realcam photo error: {e}")
+                    draw.rectangle([26, img_y1, W-26, img_y2], fill=(60,60,60))
+            else:
+                draw.rectangle([26, img_y1, W-26, img_y2], fill=(60,60,60))
+            # Subtle dark gradient at the bottom third for legibility
+            grad_h = int((img_y2-img_y1)*0.35)
+            grad = Image.new("L", (1, grad_h), 0)
+            for gy in range(grad_h):
+                grad.putpixel((0, gy), int(140 * gy/grad_h))
+            grad = grad.resize((W-52, grad_h))
+            shadow = Image.new("RGB", (W-52, grad_h), (0,0,0))
+            img.paste(shadow, (26, img_y2-grad_h), grad)
+            draw = ImageDraw.Draw(img)
+            draw.rounded_rectangle([26, img_y1, W-26, img_y2],
+                                   radius=18, outline=(255,255,255), width=4)
+            # Signature "realcam" element — decorative waveform bar
+            draw_waveform(draw, (26+(W-26))//2, img_y2-28, (W-52)*0.6,
+                         34, color=(255,255,255), seed=screen_num*7+1)
+
         else:  # "stacked" — default
             draw.rounded_rectangle([26, img_y1+6, W-26, img_y2+6],
                                    radius=26, fill=(140,140,140))
@@ -1178,8 +1237,9 @@ def build_frame(theme, screen_num, title, tips,
                                    radius=26, outline=p, width=6)
             draw_mascot(draw, W-110, img_y1+95, 100, mpose, theme)
 
-        # ── AI presenter character (same image reused all video long) ──
-        if ai_character_path and os.path.exists(ai_character_path):
+        # ── AI presenter character (skipped for "realcam" — a cartoon
+        # character over a real photo breaks the documentary feel) ──
+        if layout != "realcam" and ai_character_path and os.path.exists(ai_character_path):
             paste_ai_character(img, ai_character_path, img_y1, img_y2, W)
             draw = ImageDraw.Draw(img)
 
@@ -1218,19 +1278,47 @@ def build_frame(theme, screen_num, title, tips,
         footer_y = H - 285 - footer_h - 18
         img_y2 = footer_y - 15
 
-        draw.rounded_rectangle([26, img_y1+6, W-26, img_y2+6],
-                               radius=26, fill=(140,140,140))
-        draw.rounded_rectangle([26, img_y1, W-26, img_y2],
-                               radius=26, fill=(250,250,250))
-        illus_kind = get_illustration_kind(title)
-        icx = (26 + (W-26)) // 2
-        icy = (img_y1 + img_y2) // 2
-        iw  = (W-52) * 0.62
-        ih  = (img_y2 - img_y1) * 0.62
-        draw_illustration(draw, icx, icy, iw, ih, illus_kind, theme)
-        draw.rounded_rectangle([26, img_y1, W-26, img_y2],
-                               radius=26, outline=p, width=6)
-        draw_mascot(draw, W-110, img_y1+95, 100, "wave", theme)
+        if layout == "realcam":
+            draw.rounded_rectangle([26, img_y1+6, W-26, img_y2+6],
+                                   radius=18, fill=(140,140,140))
+            real_photo = get_topic_image(title, seed_suffix="realcam_intro")
+            if real_photo and os.path.exists(real_photo):
+                try:
+                    pi = Image.open(real_photo).convert("RGB")
+                    target_w, target_h = W-52, img_y2-img_y1
+                    pr, br = pi.width/pi.height, target_w/target_h
+                    if pr > br:
+                        nh, nw = target_h, int(target_h*pr)
+                    else:
+                        nw, nh = target_w, int(target_w/pr)
+                    pi = pi.resize((nw, nh), Image.LANCZOS)
+                    left, top = (nw-target_w)//2, (nh-target_h)//3
+                    pi = pi.crop((left, top, left+target_w, top+target_h))
+                    img.paste(pi, (26, img_y1))
+                    draw = ImageDraw.Draw(img)
+                except Exception as e:
+                    print(f"  realcam intro photo error: {e}")
+                    draw.rectangle([26, img_y1, W-26, img_y2], fill=(60,60,60))
+            else:
+                draw.rectangle([26, img_y1, W-26, img_y2], fill=(60,60,60))
+            draw.rounded_rectangle([26, img_y1, W-26, img_y2],
+                                   radius=18, outline=(255,255,255), width=4)
+            draw_waveform(draw, (26+(W-26))//2, img_y2-28, (W-52)*0.6,
+                         34, color=(255,255,255), seed=99)
+        else:
+            draw.rounded_rectangle([26, img_y1+6, W-26, img_y2+6],
+                                   radius=26, fill=(140,140,140))
+            draw.rounded_rectangle([26, img_y1, W-26, img_y2],
+                                   radius=26, fill=(250,250,250))
+            illus_kind = get_illustration_kind(title)
+            icx = (26 + (W-26)) // 2
+            icy = (img_y1 + img_y2) // 2
+            iw  = (W-52) * 0.62
+            ih  = (img_y2 - img_y1) * 0.62
+            draw_illustration(draw, icx, icy, iw, ih, illus_kind, theme)
+            draw.rounded_rectangle([26, img_y1, W-26, img_y2],
+                                   radius=26, outline=p, width=6)
+            draw_mascot(draw, W-110, img_y1+95, 100, "wave", theme)
 
         # Teaser dots — hints 3 points are coming, in the image card
         for i in range(3):
@@ -1241,8 +1329,8 @@ def build_frame(theme, screen_num, title, tips,
             draw.text((cx, cy), str(i+1), font=load_latin_font(34),
                      fill=p, anchor="mm")
 
-        # ── AI presenter character (same image reused all video long) ──
-        if ai_character_path and os.path.exists(ai_character_path):
+        # ── AI presenter character (skipped for "realcam" videos) ──
+        if layout != "realcam" and ai_character_path and os.path.exists(ai_character_path):
             paste_ai_character(img, ai_character_path, img_y1, img_y2, W)
             draw = ImageDraw.Draw(img)
 
@@ -1514,6 +1602,35 @@ def build_caption_chunks(script_text, audio_duration, skip_last_frac=0.08, words
     return result
 
 
+def make_karaoke_caption_clip(text, strip_y, strip_h):
+    """'realcam' style caption — bold outlined text directly on the
+    photo (no background bar), matching the karaoke-highlight look of
+    that reference style. Short 1-3 word chunks work best here."""
+    img = Image.new("RGBA", (W, strip_h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    words = text.split()
+    size = 64
+    x = 60
+    y = strip_h // 2
+    total_w = 0
+    metrics = []
+    for w in words:
+        f = pick_font(w, size)
+        ww = draw.textlength(w, font=f)
+        metrics.append((w, f, ww))
+        total_w += ww + 22
+    start_x = max(60, (W - total_w) // 2)
+    cx = start_x
+    for w, f, ww in metrics:
+        draw.text((cx, y), w, font=f, fill=(80, 230, 90, 255),
+                  stroke_width=6, stroke_fill=(15, 15, 15, 255), anchor="lm")
+        cx += ww + 22
+    arr = np.array(img)
+    rgb = arr[:, :, :3]
+    alpha = arr[:, :, 3] / 255.0
+    return rgb, alpha
+
+
 def make_caption_clip(text, strip_y, strip_h):
     """Renders one caption chunk as a semi-transparent bar + white text,
     returned as an RGB numpy array + a matching alpha mask array."""
@@ -1544,7 +1661,14 @@ def create_short_video(script_data, audio_path, audio_duration,
     while len(visuals) < 3:
         visuals.append({"type": "icon"})
     has_rich_visual = any(v.get("type") in ("comparison", "flow") for v in visuals[:3])
-    video_layout = "stacked" if has_rich_visual else random.choice(["stacked", "split", "badge"])
+    # "realcam" is a real-photo + karaoke-caption style (named for future
+    # tracking — if it performs well, raise its weight below). It's
+    # skipped when a rich visual (comparison/flow) is needed since those
+    # need a clean icon card, not a busy real photo behind them.
+    video_layout = "stacked" if has_rich_visual else random.choices(
+        ["stacked", "split", "badge", "realcam"],
+        weights=[0.267, 0.267, 0.267, 0.20]
+    )[0]
     print(f"  Layout template: {video_layout}")
 
     # AI presenter character — generated ONCE per video (not per screen)
@@ -1573,7 +1697,7 @@ def create_short_video(script_data, audio_path, audio_duration,
 
     # Build frames — one point revealed at a time, each with its own image
     f_intro = build_frame(theme, 0, title, tips, total=5,
-                          topic_image=topic_image, topic=topic, ai_character_path=ai_presenter_path)
+                          topic_image=topic_image, topic=topic, ai_character_path=ai_presenter_path, layout=video_layout)
     f_t1 = build_frame(theme, 1, title, tips, total=5, topic=topic, point_text=tips[0], layout=video_layout, visual_spec=visuals[0], ai_character_path=ai_presenter_path)
     f_t2 = build_frame(theme, 2, title, tips, total=5, topic=topic, point_text=tips[1], layout=video_layout, visual_spec=visuals[1], ai_character_path=ai_presenter_path)
     f_t3 = build_frame(theme, 3, title, tips, total=5, topic=topic, point_text=tips[2], layout=video_layout, visual_spec=visuals[2], ai_character_path=ai_presenter_path)
@@ -1602,13 +1726,19 @@ def create_short_video(script_data, audio_path, audio_duration,
     layers = list(clips)
 
     # ── Burned-in captions, synced (approximately) to the narration ──
+    # "realcam" videos use short karaoke-style word chunks positioned
+    # near the middle of the photo card; other layouts use the wider
+    # sentence-chunk caption bar near the bottom of the image card.
     script_text = script_data.get("script", "")
     if script_text:
+        is_realcam = (video_layout == "realcam")
         strip_h = 130
-        strip_y = 1427 - strip_h - 10  # bottom of the shared image-card zone
-        for chunk_text, start, dur in build_caption_chunks(script_text, audio_duration):
+        strip_y = (900 if is_realcam else 1427 - strip_h - 10)
+        clip_fn = make_karaoke_caption_clip if is_realcam else make_caption_clip
+        words_per_chunk = 2 if is_realcam else 6
+        for chunk_text, start, dur in build_caption_chunks(script_text, audio_duration, words_per_chunk=words_per_chunk):
             try:
-                rgb, alpha = make_caption_clip(chunk_text, strip_y, strip_h)
+                rgb, alpha = clip_fn(chunk_text, strip_y, strip_h)
                 cclip = (ImageClip(rgb).set_duration(dur)
                         .set_mask(ImageClip(alpha, ismask=True).set_duration(dur))
                         .set_position((0, strip_y)).set_start(start))
@@ -2566,7 +2696,7 @@ def generate_long_script(topic, lang="hi"):
 # ══════════════════════════════════════════════════════════
 #  LONG-FORM LANDSCAPE FRAME BUILDER
 # ══════════════════════════════════════════════════════════
-def build_long_frame(theme, chapter_num, total_chapters, heading, topic_image=None, topic=None, visual_spec=None):
+def build_long_frame(theme, chapter_num, total_chapters, heading, topic_image=None, topic=None, visual_spec=None, video_style="standard"):
     p, d, bg = theme["primary"], theme["dark"], theme["bg"]
     white, black = (255, 255, 255), (20, 20, 20)
 
@@ -2608,13 +2738,40 @@ def build_long_frame(theme, chapter_num, total_chapters, heading, topic_image=No
     draw_mascot(draw, mid_x-110, content_y1+95, 110,
                mascot_poses[chapter_num % len(mascot_poses)], theme)
 
-    # Right: visual (icon / comparison / flow)
+    # Right: visual (icon / comparison / flow) OR a real photo for the
+    # "realcam" style (named for tracking — raise its weight later if
+    # it performs well)
     draw.rounded_rectangle([mid_x+20, content_y1, LW-60, content_y2], radius=28, fill=(250,250,250), outline=p, width=5)
     vcx = (mid_x+20 + LW-60) // 2
     vcy = (content_y1 + content_y2) // 2
     vw  = (LW-60 - mid_x-20) * 0.72
     vh  = (content_y2 - content_y1) * 0.72
-    draw_point_visual(draw, vcx, vcy, vw, vh, visual_spec, heading, theme)
+    if video_style == "realcam":
+        real_photo = get_topic_image(heading, seed_suffix="realcam_long")
+        box_x1, box_y1, box_x2, box_y2 = mid_x+20, content_y1, LW-60, content_y2
+        if real_photo and os.path.exists(real_photo):
+            try:
+                pi = Image.open(real_photo).convert("RGB")
+                target_w, target_h = box_x2-box_x1, box_y2-box_y1
+                pr, br = pi.width/pi.height, target_w/target_h
+                if pr > br:
+                    nh, nw = target_h, int(target_h*pr)
+                else:
+                    nw, nh = target_w, int(target_w/pr)
+                pi = pi.resize((nw, nh), Image.LANCZOS)
+                left, top = (nw-target_w)//2, (nh-target_h)//3
+                pi = pi.crop((left, top, left+target_w, top+target_h))
+                img.paste(pi, (box_x1, box_y1))
+                draw = ImageDraw.Draw(img)
+                draw.rounded_rectangle([box_x1, box_y1, box_x2, box_y2],
+                                       radius=28, outline=p, width=5)
+                draw_waveform(draw, (box_x1+box_x2)//2, box_y2-30,
+                             (box_x2-box_x1)*0.6, 36, color=(255,255,255),
+                             seed=chapter_num*11+3)
+            except Exception as e:
+                print(f"  realcam long photo error: {e}")
+    else:
+        draw_point_visual(draw, vcx, vcy, vw, vh, visual_spec, heading, theme)
 
     # Disclaimer bar
     disclaimer_short, _ = get_disclaimer(topic)
@@ -2647,6 +2804,12 @@ def create_long_video(script_data, theme, output_path, topic=None):
     chapters = script_data["chapters"]
     topic_image = get_topic_image(topic or "finance")
 
+    # "realcam" is a real-photo + karaoke-caption style (named for future
+    # tracking — raise its weight below if it performs well). Chosen ONCE
+    # for the whole video so all chapters look consistent.
+    video_style = random.choices(["standard", "realcam"], weights=[0.80, 0.20])[0]
+    print(f"  Video style: {video_style}")
+
     temp_dir = OUTPUT_DIR / "long_temp"
     temp_dir.mkdir(exist_ok=True, parents=True)
 
@@ -2656,12 +2819,34 @@ def create_long_video(script_data, theme, output_path, topic=None):
     for i, (ch, dur) in enumerate(zip(chapters, durations)):
         frame_img = build_long_frame(
             theme, i+1, len(chapters), ch.get("heading", f"Chapter {i+1}"),
-            topic_image=topic_image, topic=topic, visual_spec=ch.get("visual")
+            topic_image=topic_image, topic=topic, visual_spec=ch.get("visual"),
+            video_style=video_style
         )
         frame_path = str(temp_dir / f"frame_{i+1}.jpg")
         frame_img.save(frame_path, "JPEG", quality=92)
-        clip = ImageClip(frame_path).set_duration(dur)
         audio_clip = AudioFileClip(audio_paths[i])
+        base_clip = ImageClip(frame_path).set_duration(dur)
+
+        # Burned-in captions for this chapter, synced to its own narration
+        narration = ch.get("narration", "")
+        layers = [base_clip]
+        if narration:
+            is_realcam = (video_style == "realcam")
+            strip_h = 130
+            strip_y = (LH*0.42 if is_realcam else LH-220)
+            clip_fn = make_karaoke_caption_clip if is_realcam else make_caption_clip
+            words_per_chunk = 2 if is_realcam else 6
+            for chunk_text, start, cdur in build_caption_chunks(narration, dur, words_per_chunk=words_per_chunk):
+                try:
+                    rgb, alpha = clip_fn(chunk_text, int(strip_y), strip_h)
+                    cclip = (ImageClip(rgb).set_duration(cdur)
+                            .set_mask(ImageClip(alpha, ismask=True).set_duration(cdur))
+                            .set_position((0, int(strip_y))).set_start(start))
+                    layers.append(cclip)
+                except Exception as e:
+                    print(f"  Chapter caption chunk skipped: {e}")
+
+        clip = CompositeVideoClip(layers, size=(LW, LH)).set_duration(dur) if len(layers) > 1 else base_clip
         clip = clip.set_audio(audio_clip)
         clips.append(clip)
 
